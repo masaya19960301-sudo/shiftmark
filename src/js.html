@@ -173,6 +173,9 @@ function loadPageData(page) {
     case 'admin-options':
       loadShiftOptions();
       break;
+    case 'admin-defaults':
+      loadUserDefaults();
+      break;
     case 'admin-locks':
       loadLocks();
       break;
@@ -1166,6 +1169,126 @@ function copyRequestsToFinal() {
     })
     .withFailureHandler(handleError)
     .apiAdminCopyRequestsToFinal(currentToken, yearMonth);
+}
+
+// ========== 管理者：デフォルトシフト設定 ==========
+function loadUserDefaults() {
+  document.getElementById('defaults-table-container').innerHTML = '<div class="loading">読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) return;
+      renderDefaultsTable(result.users, result.allDefaults, result.options);
+    })
+    .withFailureHandler(handleError)
+    .apiAdminGetAllUserDefaults(currentToken);
+}
+
+function renderDefaultsTable(users, allDefaults, options) {
+  var dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+
+  var html = '<table class="admin-table"><thead><tr>';
+  html += '<th>氏名</th>';
+  for (var d = 0; d < 7; d++) {
+    var cls = '';
+    if (d === 0) cls = ' class="col-sun"';
+    else if (d === 6) cls = ' class="col-sat"';
+    html += '<th' + cls + '>' + dayNames[d] + '</th>';
+  }
+  html += '<th>操作</th></tr></thead><tbody>';
+
+  users.forEach(function(user) {
+    var empId = String(user.employeeId);
+    var userDefaults = allDefaults[empId] || {};
+
+    html += '<tr>';
+    html += '<td>' + user.name + '</td>';
+
+    for (var d = 0; d < 7; d++) {
+      var currentOpt = userDefaults[String(d)] || '';
+      var cls = '';
+      if (d === 0) cls = ' col-sun';
+      else if (d === 6) cls = ' col-sat';
+
+      html += '<td class="' + cls + '"><select class="default-select" data-emp="' + empId +
+              '" data-day="' + d + '">';
+      html += '<option value="">--</option>';
+      options.forEach(function(opt) {
+        var label = opt.label;
+        if (opt.startTime && opt.endTime) {
+          label = opt.startTime + '-' + opt.endTime;
+        }
+        var selected = (opt.optionId === currentOpt) ? ' selected' : '';
+        html += '<option value="' + opt.optionId + '"' + selected + '>' + label + '</option>';
+      });
+      html += '</select></td>';
+    }
+
+    html += '<td><button class="btn btn-sm btn-primary" onclick="saveUserDefaultRow(\'' +
+            empId + '\')">保存</button></td>';
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  document.getElementById('defaults-table-container').innerHTML = html;
+}
+
+function saveUserDefaultRow(employeeId) {
+  var selects = document.querySelectorAll('select.default-select[data-emp="' + employeeId + '"]');
+  var defaults = {};
+  selects.forEach(function(sel) {
+    var day = sel.dataset.day;
+    defaults[day] = sel.value;
+  });
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      showToast(result.message, result.success ? 'success' : 'error');
+    })
+    .withFailureHandler(handleError)
+    .apiAdminSaveUserDefaults(currentToken, employeeId, defaults);
+}
+
+// ========== 自動生成（デフォルトから） ==========
+function generateMyShiftFromDefaults() {
+  var yearMonth = document.getElementById('input-month-select').value;
+  if (!yearMonth) return;
+  if (!confirm(yearMonth + ' の希望シフトをデフォルト設定から自動生成しますか？\n既存の希望は上書きされます。')) return;
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result.success) {
+        showToast('デフォルトから生成しました（' + result.count + '件）', 'success');
+        loadShiftInput();
+      } else {
+        showToast(result.message, 'error');
+      }
+    })
+    .withFailureHandler(handleError)
+    .apiGenerateMyShiftFromDefaults(currentToken, yearMonth);
+}
+
+function generateFinalFromDefaults() {
+  var yearMonth = document.getElementById('final-month-select').value;
+  if (!yearMonth) return;
+  if (!confirm(yearMonth + ' の確定シフトをデフォルト設定から一括生成しますか？\n既存の確定シフトは上書きされます。')) return;
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result.success) {
+        showToast('デフォルトから生成しました（' + result.count + '件）', 'success');
+        loadFinalShift();
+      } else {
+        showToast(result.message, 'error');
+      }
+    })
+    .withFailureHandler(handleError)
+    .apiAdminGenerateFinalFromDefaults(currentToken, yearMonth);
 }
 
 // ========== 管理者：Excel出力 ==========

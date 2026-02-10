@@ -29,6 +29,7 @@
         <button class="nav-btn" data-page="admin-holidays-req" onclick="navigateTo('admin-holidays-req')">公休日管理</button>
         <button class="nav-btn" data-page="admin-holidays" onclick="navigateTo('admin-holidays')">祝日登録</button>
         <button class="nav-btn" data-page="admin-options" onclick="navigateTo('admin-options')">勤務時間候補</button>
+        <button class="nav-btn" data-page="admin-defaults" onclick="navigateTo('admin-defaults')">デフォルト設定</button>
         <button class="nav-btn" data-page="admin-locks" onclick="navigateTo('admin-locks')">締切管理</button>
         <button class="nav-btn" data-page="admin-final" onclick="navigateTo('admin-final')">確定シフト</button>
         <button class="nav-btn" data-page="admin-export" onclick="navigateTo('admin-export')">Excel出力</button>
@@ -88,6 +89,7 @@
           <button class="btn btn-sm" onclick="changeMonth('input', -1)">&lt; 前月</button>
           <select id="input-month-select" onchange="loadShiftInput()"></select>
           <button class="btn btn-sm" onclick="changeMonth('input', 1)">次月 &gt;</button>
+          <button class="btn btn-primary btn-sm" onclick="generateMyShiftFromDefaults()" style="margin-left:10px;">デフォルトから生成</button>
         </div>
       </div>
       <div id="input-lock-notice" class="notice notice-warning" style="display:none;">
@@ -300,6 +302,17 @@
       </div>
     </div>
 
+    <!-- 管理者：デフォルトシフト設定 -->
+    <div id="page-admin-defaults" class="page" style="display:none;">
+      <div class="page-header">
+        <h2>デフォルトシフト設定</h2>
+      </div>
+      <p class="hint">ユーザーごとの曜日別デフォルトシフトを設定します。祝日は日曜と同じ扱いになります。</p>
+      <div id="defaults-table-container">
+        <div class="loading">読み込み中...</div>
+      </div>
+    </div>
+
     <!-- 管理者：締切管理 -->
     <div id="page-admin-locks" class="page" style="display:none;">
       <div class="page-header">
@@ -319,6 +332,7 @@
           <select id="final-month-select" onchange="loadFinalShift()"></select>
           <button class="btn btn-sm" onclick="changeMonth('final', 1)">次月 &gt;</button>
           <button class="btn btn-primary btn-sm" onclick="copyRequestsToFinal()" style="margin-left:10px;">希望から一括コピー</button>
+          <button class="btn btn-sm btn-success" onclick="generateFinalFromDefaults()" style="margin-left:5px;">デフォルトから生成</button>
         </div>
       </div>
       <div id="final-shift-table-container" class="table-scroll">

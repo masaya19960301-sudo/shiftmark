@@ -194,3 +194,21 @@ function apiCheckDaysOff(token, yearMonth) {
     includePaidLeave: includePL
   };
 }
+
+/**
+ * デフォルトシフトから自分の希望シフトを自動生成
+ */
+function apiGenerateMyShiftFromDefaults(token, yearMonth) {
+  const session = validateSession(token);
+  if (!session) return { success: false, message: 'セッションが無効です' };
+
+  // 締切チェック（管理者は締切後も編集可）
+  if (session.role !== 'admin') {
+    const lockStatus = getLockStatus(yearMonth);
+    if (lockStatus.locked) {
+      return { success: false, message: 'この月度は締切済みのため編集できません' };
+    }
+  }
+
+  return generateShiftFromDefaults(yearMonth, session.employeeId);
+}

@@ -244,3 +244,45 @@ function apiAdminCopyRequestsToFinal(token, yearMonth) {
   if (!auth.valid) return { success: false, message: auth.message };
   return copyRequestsToFinal(yearMonth);
 }
+
+// ========== デフォルトシフト管理 ==========
+
+/**
+ * 全ユーザーのデフォルトシフト取得
+ */
+function apiAdminGetAllUserDefaults(token) {
+  const auth = requireAdmin(token);
+  if (!auth.valid) return { success: false, message: auth.message };
+
+  const users = getAllActiveUsers();
+  const allDefaults = getAllUserDefaults();
+  const options = getActiveShiftOptions();
+
+  return {
+    success: true,
+    users: users,
+    allDefaults: allDefaults,
+    options: options
+  };
+}
+
+/**
+ * ユーザーのデフォルトシフト保存
+ */
+function apiAdminSaveUserDefaults(token, employeeId, defaults) {
+  const auth = requireAdmin(token);
+  if (!auth.valid) return { success: false, message: auth.message };
+
+  saveUserDefaults(employeeId, defaults);
+  return { success: true, message: 'デフォルトシフトを保存しました' };
+}
+
+/**
+ * デフォルトから確定シフトを一括自動生成（全ユーザー）
+ */
+function apiAdminGenerateFinalFromDefaults(token, yearMonth) {
+  const auth = requireAdmin(token);
+  if (!auth.valid) return { success: false, message: auth.message };
+
+  return generateFinalFromDefaults(yearMonth);
+}

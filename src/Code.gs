@@ -15,7 +15,8 @@ const SHEET_NAMES = {
   SHIFT_OPTIONS: 'ShiftOptions',
   SHIFT_REQUESTS: 'ShiftRequests',
   SHIFT_FINAL: 'ShiftFinal',
-  LOCKS: 'Locks'
+  LOCKS: 'Locks',
+  USER_DEFAULTS: 'UserDefaults'
 };
 
 /**
@@ -109,6 +110,11 @@ function setupSpreadsheet() {
       ['opt5', '有休', '', '', 11, true]
     ];
     defaults.forEach(row => optSheet.appendRow(row));
+    // 時刻列をテキスト形式に設定
+    const optLastRow = optSheet.getLastRow();
+    if (optLastRow > 1) {
+      optSheet.getRange(2, 3, optLastRow - 1, 2).setNumberFormat('@');
+    }
   }
 
   // ShiftRequests シート
@@ -127,6 +133,12 @@ function setupSpreadsheet() {
   const locksSheet = getOrCreateSheet(SHEET_NAMES.LOCKS);
   if (locksSheet.getLastRow() === 0) {
     locksSheet.appendRow(['yearMonth', 'locked', 'lockedAt', 'lockedBy']);
+  }
+
+  // UserDefaults シート（ユーザーごとの曜日別デフォルトシフト）
+  const defaultsSheet = getOrCreateSheet(SHEET_NAMES.USER_DEFAULTS);
+  if (defaultsSheet.getLastRow() === 0) {
+    defaultsSheet.appendRow(['employeeId', 'dayOfWeek', 'shiftOptionId']);
   }
 
   return { success: true, message: '初期セットアップが完了しました' };
@@ -172,6 +184,31 @@ function formatDate(date) {
  */
 function formatYearMonth(year, month) {
   return year + '-' + ('0' + month).slice(-2);
+}
+
+/**
+ * 時刻値を"HH:MM"文字列に正規化
+ * Google Sheetsが"09:00"をDate型に自動変換する問題に対応
+ */
+function normalizeTime(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    return ('0' + val.getHours()).slice(-2) + ':' + ('0' + val.getMinutes()).slice(-2);
+  }
+  var s = String(val);
+  // "1899-12-30T09:00:00.000Z" のようなISO文字列対応
+  if (s.includes('T') && s.includes(':')) {
+    var d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+    }
+  }
+  // 既にHH:MM形式ならそのまま
+  var m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (m) {
+    return ('0' + m[1]).slice(-2) + ':' + m[2];
+  }
+  return s;
 }
 
 /**

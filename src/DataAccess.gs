@@ -343,8 +343,8 @@ function getActiveShiftOptions() {
     const opt = {};
     headers.forEach((h, idx) => { opt[h] = data[i][idx]; });
     opt.optionId = String(opt.optionId);
-    opt.startTime = String(opt.startTime || '');
-    opt.endTime = String(opt.endTime || '');
+    opt.startTime = normalizeTime(opt.startTime);
+    opt.endTime = normalizeTime(opt.endTime);
     if (opt.active === true || opt.active === 'TRUE' || opt.active === 'true') {
       options.push(opt);
     }
@@ -367,8 +367,8 @@ function getAllShiftOptions() {
     const opt = {};
     headers.forEach((h, idx) => { opt[h] = data[i][idx]; });
     opt.optionId = String(opt.optionId);
-    opt.startTime = String(opt.startTime || '');
-    opt.endTime = String(opt.endTime || '');
+    opt.startTime = normalizeTime(opt.startTime);
+    opt.endTime = normalizeTime(opt.endTime);
     opt._row = i + 1;
     options.push(opt);
   }
@@ -383,26 +383,171 @@ function saveShiftOption(optionData) {
   const sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_OPTIONS);
   const all = getAllShiftOptions();
   const existing = all.find(o => o.optionId === String(optionData.optionId));
+  const st = normalizeTime(optionData.startTime);
+  const et = normalizeTime(optionData.endTime);
 
   if (existing) {
     const row = existing._row;
     sheet.getRange(row, 2).setValue(optionData.label);
-    sheet.getRange(row, 3).setValue(optionData.startTime || '');
-    sheet.getRange(row, 4).setValue(optionData.endTime || '');
+    sheet.getRange(row, 3).setNumberFormat('@').setValue(st);
+    sheet.getRange(row, 4).setNumberFormat('@').setValue(et);
     sheet.getRange(row, 5).setValue(optionData.sortOrder || 0);
     sheet.getRange(row, 6).setValue(optionData.active !== false);
   } else {
     sheet.appendRow([
       optionData.optionId || Utilities.getUuid(),
       optionData.label,
-      optionData.startTime || '',
-      optionData.endTime || '',
+      st,
+      et,
       optionData.sortOrder || 0,
       optionData.active !== false
     ]);
+    const lastRow = sheet.getLastRow();
+    sheet.getRange(lastRow, 3).setNumberFormat('@');
+    sheet.getRange(lastRow, 4).setNumberFormat('@');
   }
   SpreadsheetApp.flush();
   return { success: true };
+}
+
+// ========== UserDefaults（ユーザー別デフォルトシフト） ==========
+
+/**
+ * ユーザーのデフォルトシフトを取得
+ * 戻り値: { 0: optionId, 1: optionId, ... 6: optionId } (0=日, 6=土)
+ */
+function getUserDefaults(employeeId) {
+  const sheet = getOrCreateSheet(SHEET_NAMES.USER_DEFAULTS);
+  const data = sheet.getDataRange().getValues();
+  const targetEmp = String(employeeId);
+  const result = {};
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === targetEmp) {
+      result[String(data[i][1])] = String(data[i][2]);
+    }
+  }
+  return result;
+}
+
+/**
+ * 全ユーザーのデフォルトシフトを取得
+ */
+function getAllUserDefaults() {
+  const sheet = getOrCreateSheet(SHEET_NAMES.USER_DEFAULTS);
+  const data = sheet.getDataRange().getValues();
+  const result = {};
+  for (let i = 1; i < data.length; i++) {
+    const emp = String(data[i][0]);
+    if (!result[emp]) result[emp] = {};
+    result[emp][String(data[i][1])] = String(data[i][2]);
+  }
+  return result;
+}
+
+/**
+ * ユーザーのデフォルトシフトを保存（全曜日一括）
+ * defaults: { "0": optionId, "1": optionId, ... "6": optionId }
+ */
+function saveUserDefaults(employeeId, defaults) {
+  const sheet = getOrCreateSheet(SHEET_NAMES.USER_DEFAULTS);
+  const data = sheet.getDataRange().getValues();
+  const targetEmp = String(employeeId);
+
+  // 既存レコードを削除（下から削除して行番号ズレ防止）
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][0]) === targetEmp) {
+      sheet.deleteRow(i + 1);
+    }
+  }
+
+  // 新しいデフォルトを追加
+  for (let day = 0; day <= 6; day++) {
+    const optId = defaults[String(day)] || '';
+    if (optId) {
+      sheet.appendRow([targetEmp, day, optId]);
+      const lastRow = sheet.getLastRow();
+      sheet.getRange(lastRow, 1).setNumberFormat('@');
+    }
+  }
+  SpreadsheetApp.flush();
+  return { success: true };
+}
+
+/**
+ * デフォルトシフトから希望シフトを自動生成
+ */
+function generateShiftFromDefaults(yearMonth, employeeId) {
+  const defaults = getUserDefaults(employeeId);
+  if (Object.keys(defaults).length === 0) {
+    return { success: false, message: 'デフォルトシフトが設定されていません' };
+  }
+
+  const dateRange = getDateRangeForYearMonth(yearMonth);
+  const dates = generateDateList(dateRange.startDate, dateRange.endDate);
+  const holidays = getHolidays();
+
+  // 祝日用のデフォルト（日曜と同じ扱い）
+  const holidayOpt = defaults['0'] || '';
+
+  let count = 0;
+  dates.forEach(dateStr => {
+    const dt = new Date(dateStr);
+    const dow = dt.getDay(); // 0=日, 6=土
+    let optId;
+
+    if (holidays.includes(dateStr)) {
+      // 祝日は日曜のデフォルトを使用
+      optId = holidayOpt;
+    } else {
+      optId = defaults[String(dow)] || '';
+    }
+
+    if (optId) {
+      saveShiftRequest(yearMonth, employeeId, dateStr, optId);
+      count++;
+    }
+  });
+
+  return { success: true, count: count };
+}
+
+/**
+ * デフォルトシフトから確定シフトを自動生成（管理者用：全ユーザー一括）
+ */
+function generateFinalFromDefaults(yearMonth) {
+  const users = getAllActiveUsers();
+  const allDefaults = getAllUserDefaults();
+  const dateRange = getDateRangeForYearMonth(yearMonth);
+  const dates = generateDateList(dateRange.startDate, dateRange.endDate);
+  const holidays = getHolidays();
+
+  let totalCount = 0;
+  users.forEach(user => {
+    const empId = String(user.employeeId);
+    const defaults = allDefaults[empId];
+    if (!defaults || Object.keys(defaults).length === 0) return;
+
+    const holidayOpt = defaults['0'] || '';
+
+    dates.forEach(dateStr => {
+      const dt = new Date(dateStr);
+      const dow = dt.getDay();
+      let optId;
+
+      if (holidays.includes(dateStr)) {
+        optId = holidayOpt;
+      } else {
+        optId = defaults[String(dow)] || '';
+      }
+
+      if (optId) {
+        saveShiftFinal(yearMonth, empId, dateStr, optId);
+        totalCount++;
+      }
+    });
+  });
+
+  return { success: true, count: totalCount };
 }
 
 // ========== ShiftRequests ==========
