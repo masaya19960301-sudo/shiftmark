@@ -1,0 +1,1257 @@
+<script>
+// ========== グローバル状態 ==========
+let currentToken = null;
+let currentUser = null;
+let currentPage = 'login';
+let shiftOptions = [];
+let activePopup = null;
+
+// ========== 初期化 ==========
+document.addEventListener('DOMContentLoaded', function() {
+  // セッション復元
+  currentToken = sessionStorage.getItem('token');
+  const savedUser = sessionStorage.getItem('user');
+  if (currentToken && savedUser) {
+    currentUser = JSON.parse(savedUser);
+    showApp();
+  }
+
+  // Enterキーでログイン
+  document.getElementById('login-password').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') doLogin();
+  });
+  document.getElementById('login-id').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') document.getElementById('login-password').focus();
+  });
+
+  // ポップアップ外クリックで閉じる
+  document.addEventListener('click', function(e) {
+    if (activePopup && !e.target.closest('.shift-popup') && !e.target.closest('.shift-cell')) {
+      closeShiftPopup();
+    }
+  });
+
+  // 祝日ドラッグ&ドロップ
+  setupHolidayDropZone();
+});
+
+// ========== 認証 ==========
+function doLogin() {
+  const id = document.getElementById('login-id').value.trim();
+  const pw = document.getElementById('login-password').value;
+  if (!id || !pw) {
+    showError('login-error', '社員番号とパスワードを入力してください');
+    return;
+  }
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result.success) {
+        currentToken = result.token;
+        currentUser = result.user;
+        sessionStorage.setItem('token', currentToken);
+        sessionStorage.setItem('user', JSON.stringify(currentUser));
+        showApp();
+      } else {
+        showError('login-error', result.message);
+      }
+    })
+    .withFailureHandler(function(err) {
+      hideLoading();
+      showError('login-error', 'ログインに失敗しました: ' + err.message);
+    })
+    .login(id, pw);
+}
+
+function doLogout() {
+  google.script.run.logout(currentToken);
+  currentToken = null;
+  currentUser = null;
+  sessionStorage.removeItem('token');
+  sessionStorage.removeItem('user');
+  document.getElementById('app-header').style.display = 'none';
+  showPage('login');
+}
+
+function showApp() {
+  document.getElementById('app-header').style.display = 'block';
+  document.getElementById('header-user-name').textContent = currentUser.name + 'さん';
+
+  if (currentUser.role === 'admin') {
+    document.getElementById('admin-nav').style.display = 'inline-flex';
+  } else {
+    document.getElementById('admin-nav').style.display = 'none';
+  }
+
+  navigateTo('shift-input');
+}
+
+// ========== パスワード変更 ==========
+function showPasswordChange() {
+  document.getElementById('pw-current').value = '';
+  document.getElementById('pw-new').value = '';
+  document.getElementById('pw-confirm').value = '';
+  hideError('pw-error');
+  document.getElementById('modal-password').style.display = 'flex';
+}
+
+function doChangePassword() {
+  const current = document.getElementById('pw-current').value;
+  const newPw = document.getElementById('pw-new').value;
+  const confirm = document.getElementById('pw-confirm').value;
+
+  if (!current || !newPw) {
+    showError('pw-error', '全項目を入力してください');
+    return;
+  }
+  if (newPw !== confirm) {
+    showError('pw-error', '新しいパスワードが一致しません');
+    return;
+  }
+  if (newPw.length < 4) {
+    showError('pw-error', 'パスワードは4文字以上で設定してください');
+    return;
+  }
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result.success) {
+        closeModal('modal-password');
+        showToast(result.message, 'success');
+      } else {
+        showError('pw-error', result.message);
+      }
+    })
+    .withFailureHandler(handleError)
+    .changePassword(currentToken, current, newPw);
+}
+
+// ========== ナビゲーション ==========
+function navigateTo(page) {
+  currentPage = page;
+  // ナビボタンのactive切り替え
+  document.querySelectorAll('.nav-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.page === page);
+  });
+  showPage(page);
+  // ページ読み込み
+  loadPageData(page);
+}
+
+function showPage(page) {
+  document.querySelectorAll('.page').forEach(function(p) {
+    p.style.display = 'none';
+  });
+  document.getElementById('page-' + page).style.display = 'block';
+}
+
+function loadPageData(page) {
+  switch (page) {
+    case 'shift-input':
+      initMonthSelector('input');
+      break;
+    case 'shift-view':
+      initMonthSelector('view');
+      break;
+    case 'admin-users':
+      loadAdminUsers();
+      break;
+    case 'admin-month':
+      loadMonthDefs();
+      break;
+    case 'admin-holidays-req':
+      loadReqHolidays();
+      break;
+    case 'admin-holidays':
+      loadHolidays();
+      break;
+    case 'admin-options':
+      loadShiftOptions();
+      break;
+    case 'admin-locks':
+      loadLocks();
+      break;
+    case 'admin-final':
+      initMonthSelector('final');
+      break;
+    case 'admin-export':
+      initMonthSelector('export');
+      break;
+  }
+}
+
+// ========== 月度セレクタ ==========
+function initMonthSelector(prefix) {
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) return;
+      var select = document.getElementById(prefix + '-month-select');
+      select.innerHTML = '';
+      result.months.forEach(function(m) {
+        var opt = document.createElement('option');
+        opt.value = m.yearMonth;
+        opt.textContent = m.label + (m.locked ? ' [締切済]' : '');
+        select.appendChild(opt);
+      });
+      // 現在月を選択
+      var now = new Date();
+      var currentYM = now.getFullYear() + '-' + ('0' + (now.getMonth() + 1)).slice(-2);
+      if (select.querySelector('option[value="' + currentYM + '"]')) {
+        select.value = currentYM;
+      }
+      // ページデータ読み込み
+      switch (prefix) {
+        case 'input': loadShiftInput(); break;
+        case 'view': loadShiftView(); break;
+        case 'final': loadFinalShift(); break;
+        case 'export': break;
+      }
+    })
+    .withFailureHandler(handleError)
+    .apiGetAvailableYearMonths(currentToken);
+}
+
+function changeMonth(prefix, delta) {
+  var select = document.getElementById(prefix + '-month-select');
+  var idx = select.selectedIndex + delta;
+  if (idx >= 0 && idx < select.options.length) {
+    select.selectedIndex = idx;
+    switch (prefix) {
+      case 'input': loadShiftInput(); break;
+      case 'view': loadShiftView(); break;
+      case 'final': loadFinalShift(); break;
+    }
+  }
+}
+
+// ========== 希望シフト入力 ==========
+function loadShiftInput() {
+  var yearMonth = document.getElementById('input-month-select').value;
+  if (!yearMonth) return;
+
+  document.getElementById('shift-input-table-container').innerHTML = '<div class="loading">読み込み中...</div>';
+
+  google.script.run
+    .withSuccessHandler(function(data) {
+      if (!data.success) {
+        document.getElementById('shift-input-table-container').innerHTML =
+          '<div class="notice notice-danger">' + data.message + '</div>';
+        return;
+      }
+      shiftOptions = data.options;
+      renderShiftInputTable(data);
+      updateDaysOffInfo(yearMonth);
+    })
+    .withFailureHandler(handleError)
+    .apiGetShiftInputData(currentToken, yearMonth);
+}
+
+function renderShiftInputTable(data) {
+  var dates = generateDates(data.dateRange.startDate, data.dateRange.endDate);
+  var optionMap = {};
+  data.options.forEach(function(o) { optionMap[o.optionId] = o; });
+
+  // 締切通知
+  var lockNotice = document.getElementById('input-lock-notice');
+  lockNotice.style.display = (data.locked && !data.isAdmin) ? 'block' : 'none';
+
+  var editable = !data.locked || data.isAdmin;
+
+  // ユーザーリスト（本人を最上段に）
+  var myId = currentUser.employeeId;
+  var sortedUsers = data.users.slice();
+  sortedUsers.sort(function(a, b) {
+    if (String(a.employeeId) === String(myId)) return -1;
+    if (String(b.employeeId) === String(myId)) return 1;
+    return 0;
+  });
+
+  // リクエストをマップ化
+  var requestMap = {};
+  data.myRequests.concat(data.otherRequests).forEach(function(r) {
+    requestMap[r.employeeId + '_' + r.date] = r.shiftOptionId;
+  });
+
+  var html = '<table><thead><tr><th class="sticky-col">氏名</th>';
+  dates.forEach(function(d) {
+    var dt = new Date(d);
+    var dayNames = ['日','月','火','水','木','金','土'];
+    var dayClass = '';
+    if (dt.getDay() === 0) dayClass = 'col-sun';
+    else if (dt.getDay() === 6) dayClass = 'col-sat';
+    if (data.holidays.includes(d)) dayClass = 'col-holiday';
+    html += '<th class="' + dayClass + '">' + dayNames[dt.getDay()] + '<br>' +
+            (dt.getMonth() + 1) + '/' + dt.getDate() + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  sortedUsers.forEach(function(user) {
+    var isMe = String(user.employeeId) === String(myId);
+    html += '<tr>';
+    html += '<td class="sticky-col' + (isMe ? ' my-row' : '') + '">' +
+            user.name + (isMe ? ' (自分)' : '') + '</td>';
+
+    dates.forEach(function(d) {
+      var dt = new Date(d);
+      var dayClass = '';
+      if (dt.getDay() === 0) dayClass = 'col-sun';
+      else if (dt.getDay() === 6) dayClass = 'col-sat';
+      if (data.holidays.includes(d)) dayClass = 'col-holiday';
+
+      var optId = requestMap[user.employeeId + '_' + d] || '';
+      var label = '';
+      var cellClass = 'shift-cell';
+      if (optId && optionMap[optId]) {
+        var opt = optionMap[optId];
+        if (opt.startTime && opt.endTime) {
+          label = opt.startTime + '-' + opt.endTime;
+          cellClass += ' has-shift';
+        } else if (opt.label.includes('公休')) {
+          label = '休';
+          cellClass += ' is-off';
+        } else if (opt.label.includes('有休')) {
+          label = '有休';
+          cellClass += ' is-paid-leave';
+        } else {
+          label = opt.label;
+        }
+      }
+
+      if (isMe && editable) {
+        html += '<td class="' + cellClass + ' ' + dayClass + (isMe ? ' my-row' : '') +
+                '" data-date="' + d + '" data-opt="' + optId +
+                '" onclick="openShiftPopup(this, \'' + data.yearMonth + '\', \'' + d + '\')">' +
+                label + '</td>';
+      } else {
+        html += '<td class="' + cellClass + ' ' + dayClass + (isMe ? ' my-row' : '') +
+                '">' + label + '</td>';
+      }
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  document.getElementById('shift-input-table-container').innerHTML = html;
+}
+
+function openShiftPopup(cell, yearMonth, date) {
+  closeShiftPopup();
+
+  var rect = cell.getBoundingClientRect();
+  var popup = document.createElement('div');
+  popup.className = 'shift-popup';
+  popup.style.position = 'fixed';
+  popup.style.top = (rect.bottom + 2) + 'px';
+  popup.style.left = rect.left + 'px';
+
+  var currentOpt = cell.dataset.opt;
+
+  shiftOptions.forEach(function(opt) {
+    var btn = document.createElement('button');
+    var displayLabel = opt.label;
+    if (opt.startTime && opt.endTime) {
+      displayLabel = opt.startTime + '-' + opt.endTime;
+    }
+    btn.textContent = displayLabel;
+    if (opt.optionId === currentOpt) btn.className = 'selected';
+    btn.onclick = function() {
+      saveShiftCell(cell, yearMonth, date, opt.optionId, opt);
+      closeShiftPopup();
+    };
+    popup.appendChild(btn);
+  });
+
+  // クリアボタン
+  var clearBtn = document.createElement('button');
+  clearBtn.textContent = 'クリア';
+  clearBtn.className = 'popup-clear';
+  clearBtn.onclick = function() {
+    saveShiftCell(cell, yearMonth, date, '', null);
+    closeShiftPopup();
+  };
+  popup.appendChild(clearBtn);
+
+  document.body.appendChild(popup);
+  activePopup = popup;
+
+  // 画面外にはみ出す場合の調整
+  var popupRect = popup.getBoundingClientRect();
+  if (popupRect.right > window.innerWidth) {
+    popup.style.left = (window.innerWidth - popupRect.width - 10) + 'px';
+  }
+  if (popupRect.bottom > window.innerHeight) {
+    popup.style.top = (rect.top - popupRect.height - 2) + 'px';
+  }
+}
+
+function closeShiftPopup() {
+  if (activePopup) {
+    activePopup.remove();
+    activePopup = null;
+  }
+}
+
+function saveShiftCell(cell, yearMonth, date, optionId, opt) {
+  // UI即時更新
+  cell.dataset.opt = optionId;
+  cell.className = cell.className.replace(/ has-shift| is-off| is-paid-leave/g, '');
+
+  if (opt) {
+    if (opt.startTime && opt.endTime) {
+      cell.textContent = opt.startTime + '-' + opt.endTime;
+      cell.classList.add('has-shift');
+    } else if (opt.label.includes('公休')) {
+      cell.textContent = '休';
+      cell.classList.add('is-off');
+    } else if (opt.label.includes('有休')) {
+      cell.textContent = '有休';
+      cell.classList.add('is-paid-leave');
+    } else {
+      cell.textContent = opt.label;
+    }
+  } else {
+    cell.textContent = '';
+  }
+
+  // サーバー保存
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) {
+        showToast('保存に失敗しました: ' + result.message, 'error');
+        loadShiftInput(); // リロード
+      } else {
+        updateDaysOffInfo(yearMonth);
+      }
+    })
+    .withFailureHandler(function(err) {
+      showToast('保存エラー: ' + err.message, 'error');
+    })
+    .apiSaveShiftRequest(currentToken, yearMonth, date, optionId);
+}
+
+function updateDaysOffInfo(yearMonth) {
+  google.script.run
+    .withSuccessHandler(function(result) {
+      var el = document.getElementById('input-days-off-info');
+      if (!result.success || result.required === null) {
+        el.style.display = 'none';
+        return;
+      }
+
+      var text = '公休: ' + result.daysOffCount + '日';
+      if (result.paidLeaveCount > 0) {
+        text += ' / 有休: ' + result.paidLeaveCount + '日';
+      }
+      if (result.required !== null) {
+        text += ' / 必要公休: ' + result.required + '日';
+      }
+
+      el.textContent = text;
+      el.style.display = 'block';
+
+      if (result.warning) {
+        el.className = 'notice notice-warning';
+        el.textContent = result.warning;
+      } else {
+        el.className = 'notice notice-info';
+      }
+    })
+    .withFailureHandler(function() {})
+    .apiCheckDaysOff(currentToken, yearMonth);
+}
+
+// ========== シフト閲覧 ==========
+function loadShiftView() {
+  var yearMonth = document.getElementById('view-month-select').value;
+  if (!yearMonth) return;
+
+  document.getElementById('shift-view-table-container').innerHTML = '<div class="loading">読み込み中...</div>';
+
+  google.script.run
+    .withSuccessHandler(function(data) {
+      if (!data.success) return;
+
+      var notice = document.getElementById('view-source-notice');
+      notice.textContent = data.isFinal ? '確定シフトを表示しています' : '希望シフトを表示しています（未確定）';
+      notice.style.display = 'block';
+
+      renderShiftViewTable(data);
+    })
+    .withFailureHandler(handleError)
+    .apiGetShiftView(currentToken, yearMonth);
+}
+
+function renderShiftViewTable(data) {
+  var dates = generateDates(data.dateRange.startDate, data.dateRange.endDate);
+  var optionMap = {};
+  data.options.forEach(function(o) { optionMap[o.optionId] = o; });
+
+  var shiftMap = {};
+  data.shifts.forEach(function(s) {
+    shiftMap[s.employeeId + '_' + s.date] = s.shiftOptionId;
+  });
+
+  var html = '<table><thead><tr><th class="sticky-col">氏名</th>';
+  dates.forEach(function(d) {
+    var dt = new Date(d);
+    var dayNames = ['日','月','火','水','木','金','土'];
+    var dayClass = '';
+    if (dt.getDay() === 0) dayClass = 'col-sun';
+    else if (dt.getDay() === 6) dayClass = 'col-sat';
+    if (data.holidays.includes(d)) dayClass = 'col-holiday';
+    html += '<th class="' + dayClass + '">' + dayNames[dt.getDay()] + '<br>' +
+            (dt.getMonth() + 1) + '/' + dt.getDate() + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  data.users.forEach(function(user) {
+    var isMe = String(user.employeeId) === String(currentUser.employeeId);
+    html += '<tr>';
+    html += '<td class="sticky-col' + (isMe ? ' my-row' : '') + '">' + user.name + '</td>';
+
+    dates.forEach(function(d) {
+      var dt = new Date(d);
+      var dayClass = '';
+      if (dt.getDay() === 0) dayClass = 'col-sun';
+      else if (dt.getDay() === 6) dayClass = 'col-sat';
+      if (data.holidays.includes(d)) dayClass = 'col-holiday';
+
+      var optId = shiftMap[user.employeeId + '_' + d] || '';
+      var label = '';
+      var cellClass = '';
+      if (optId && optionMap[optId]) {
+        var opt = optionMap[optId];
+        if (opt.startTime && opt.endTime) {
+          label = opt.startTime + '-' + opt.endTime;
+          cellClass = 'has-shift';
+        } else if (opt.label.includes('公休')) {
+          label = '休';
+          cellClass = 'is-off';
+        } else if (opt.label.includes('有休')) {
+          label = '有休';
+          cellClass = 'is-paid-leave';
+        } else {
+          label = opt.label;
+        }
+      }
+      html += '<td class="' + cellClass + ' ' + dayClass + (isMe ? ' my-row' : '') + '">' + label + '</td>';
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  document.getElementById('shift-view-table-container').innerHTML = html;
+}
+
+// ========== 管理者：ユーザー管理 ==========
+function loadAdminUsers() {
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) return;
+      renderUsersTable(result.users);
+    })
+    .withFailureHandler(handleError)
+    .apiAdminGetUsers(currentToken);
+}
+
+function renderUsersTable(users) {
+  var html = '<table class="admin-table"><thead><tr>' +
+    '<th>社員番号</th><th>氏名</th><th>権限</th><th>区分</th><th>有休時間/日</th><th>有効</th><th>操作</th>' +
+    '</tr></thead><tbody>';
+
+  users.forEach(function(u) {
+    html += '<tr>' +
+      '<td>' + u.employeeId + '</td>' +
+      '<td>' + u.name + '</td>' +
+      '<td>' + (u.role === 'admin' ? '管理者' : '一般') + '</td>' +
+      '<td>' + (u.category || '') + '</td>' +
+      '<td>' + (u.paidLeaveHoursPerDay || 8) + 'h</td>' +
+      '<td>' + (u.active ? 'はい' : 'いいえ') + '</td>' +
+      '<td>' +
+      '<button class="btn btn-sm btn-primary" onclick="showEditUserModal(\'' + u.employeeId + '\')">編集</button> ' +
+      '<button class="btn btn-sm btn-warning" onclick="resetPassword(\'' + u.employeeId + '\')">PW初期化</button>' +
+      '</td></tr>';
+  });
+
+  html += '</tbody></table>';
+  document.getElementById('users-table-container').innerHTML = html;
+}
+
+function showAddUserModal() {
+  document.getElementById('modal-user-title').textContent = 'ユーザー登録';
+  document.getElementById('user-employee-id').value = '';
+  document.getElementById('user-employee-id').disabled = false;
+  document.getElementById('user-name').value = '';
+  document.getElementById('user-role').value = 'user';
+  document.getElementById('user-category').value = '社員';
+  document.getElementById('user-paid-leave-hours').value = '8';
+  document.getElementById('user-include-pl').checked = false;
+  document.getElementById('user-password').value = 'password';
+  document.getElementById('user-password-group').style.display = 'block';
+  document.getElementById('user-active').checked = true;
+  document.getElementById('btn-save-user').dataset.mode = 'add';
+  hideError('user-error');
+  document.getElementById('modal-user').style.display = 'flex';
+}
+
+function showEditUserModal(employeeId) {
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) return;
+      var user = result.users.find(function(u) { return String(u.employeeId) === String(employeeId); });
+      if (!user) return;
+
+      document.getElementById('modal-user-title').textContent = 'ユーザー編集';
+      document.getElementById('user-employee-id').value = user.employeeId;
+      document.getElementById('user-employee-id').disabled = true;
+      document.getElementById('user-name').value = user.name;
+      document.getElementById('user-role').value = user.role;
+      document.getElementById('user-category').value = user.category || '社員';
+      document.getElementById('user-paid-leave-hours').value = user.paidLeaveHoursPerDay || 8;
+      document.getElementById('user-include-pl').checked =
+        user.includePaidLeaveInDaysOff === true || user.includePaidLeaveInDaysOff === 'TRUE';
+      document.getElementById('user-password-group').style.display = 'none';
+      document.getElementById('user-active').checked =
+        user.active === true || user.active === 'TRUE' || user.active === 'true';
+      document.getElementById('btn-save-user').dataset.mode = 'edit';
+      document.getElementById('btn-save-user').dataset.employeeId = employeeId;
+      hideError('user-error');
+      document.getElementById('modal-user').style.display = 'flex';
+    })
+    .withFailureHandler(handleError)
+    .apiAdminGetUsers(currentToken);
+}
+
+function saveUser() {
+  var mode = document.getElementById('btn-save-user').dataset.mode;
+  var data = {
+    employeeId: document.getElementById('user-employee-id').value.trim(),
+    name: document.getElementById('user-name').value.trim(),
+    role: document.getElementById('user-role').value,
+    category: document.getElementById('user-category').value,
+    paidLeaveHoursPerDay: parseInt(document.getElementById('user-paid-leave-hours').value) || 8,
+    includePaidLeaveInDaysOff: document.getElementById('user-include-pl').checked,
+    active: document.getElementById('user-active').checked
+  };
+
+  if (!data.employeeId || !data.name) {
+    showError('user-error', '社員番号と氏名は必須です');
+    return;
+  }
+
+  showLoading();
+  if (mode === 'add') {
+    data.password = document.getElementById('user-password').value || 'password';
+    google.script.run
+      .withSuccessHandler(function(result) {
+        hideLoading();
+        if (result.success) {
+          closeModal('modal-user');
+          showToast(result.message, 'success');
+          loadAdminUsers();
+        } else {
+          showError('user-error', result.message);
+        }
+      })
+      .withFailureHandler(handleError)
+      .apiAdminAddUser(currentToken, data);
+  } else {
+    var empId = document.getElementById('btn-save-user').dataset.employeeId;
+    google.script.run
+      .withSuccessHandler(function(result) {
+        hideLoading();
+        if (result.success) {
+          closeModal('modal-user');
+          showToast(result.message, 'success');
+          loadAdminUsers();
+        } else {
+          showError('user-error', result.message);
+        }
+      })
+      .withFailureHandler(handleError)
+      .apiAdminUpdateUser(currentToken, empId, data);
+  }
+}
+
+function resetPassword(employeeId) {
+  if (!confirm(employeeId + ' のパスワードを "password" にリセットしますか？')) return;
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      showToast(result.message, result.success ? 'success' : 'error');
+    })
+    .withFailureHandler(handleError)
+    .apiAdminResetPassword(currentToken, employeeId, 'password');
+}
+
+// ========== 管理者：月度設定 ==========
+function loadMonthDefs() {
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) return;
+      var html = '<table class="admin-table"><thead><tr>' +
+        '<th>年月度</th><th>開始日</th><th>終了日</th><th>適用開始</th>' +
+        '</tr></thead><tbody>';
+      result.definitions.forEach(function(d) {
+        html += '<tr><td>' + d.yearMonth + '</td><td>' + d.startDate +
+                '</td><td>' + d.endDate + '</td><td>' + (d.effectiveFrom || '-') + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      document.getElementById('month-def-table-container').innerHTML = html;
+    })
+    .withFailureHandler(handleError)
+    .apiAdminGetMonthDefinitions(currentToken);
+}
+
+function saveMonthDef() {
+  var ym = document.getElementById('month-def-ym').value;
+  var start = document.getElementById('month-def-start').value;
+  var end = document.getElementById('month-def-end').value;
+  var effective = document.getElementById('month-def-effective').value;
+
+  if (!ym || !start || !end) {
+    showToast('年月度、開始日、終了日は必須です', 'error');
+    return;
+  }
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      showToast(result.message, result.success ? 'success' : 'error');
+      if (result.success) loadMonthDefs();
+    })
+    .withFailureHandler(handleError)
+    .apiAdminSaveMonthDefinition(currentToken, ym, start, end, effective);
+}
+
+// ========== 管理者：必要公休日 ==========
+function loadReqHolidays() {
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) return;
+      var html = '<table class="admin-table"><thead><tr>' +
+        '<th>年月度</th><th>必要公休日数</th>' +
+        '</tr></thead><tbody>';
+      result.holidays.forEach(function(h) {
+        html += '<tr><td>' + h.yearMonth + '</td><td>' + h.requiredDaysOff + '日</td></tr>';
+      });
+      html += '</tbody></table>';
+      document.getElementById('req-hol-table-container').innerHTML = html;
+    })
+    .withFailureHandler(handleError)
+    .apiAdminGetRequiredHolidays(currentToken);
+}
+
+function saveReqHolidays() {
+  var ym = document.getElementById('req-hol-ym').value;
+  var days = parseInt(document.getElementById('req-hol-days').value);
+
+  if (!ym || isNaN(days)) {
+    showToast('年月度と日数を入力してください', 'error');
+    return;
+  }
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      showToast(result.message, result.success ? 'success' : 'error');
+      if (result.success) loadReqHolidays();
+    })
+    .withFailureHandler(handleError)
+    .apiAdminSaveRequiredHolidays(currentToken, ym, days);
+}
+
+// ========== 管理者：祝日登録 ==========
+function loadHolidays() {
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) return;
+      var html = '<h3>登録済み祝日 (' + result.holidays.length + '件)</h3>';
+      html += '<div style="max-height:300px;overflow-y:auto;"><table class="admin-table"><thead><tr><th>日付</th></tr></thead><tbody>';
+      result.holidays.sort().forEach(function(h) {
+        html += '<tr><td>' + h + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+      document.getElementById('holidays-list-container').innerHTML = html;
+    })
+    .withFailureHandler(handleError)
+    .apiAdminGetHolidays(currentToken);
+}
+
+function setupHolidayDropZone() {
+  var dropZone = document.getElementById('holiday-drop-zone');
+  if (!dropZone) return;
+
+  dropZone.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+  dropZone.addEventListener('dragleave', function() {
+    dropZone.classList.remove('dragover');
+  });
+  dropZone.addEventListener('drop', function(e) {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    handleHolidayFile(e.dataTransfer.files[0]);
+  });
+
+  document.getElementById('holiday-file-input').addEventListener('change', function(e) {
+    if (e.target.files.length > 0) {
+      handleHolidayFile(e.target.files[0]);
+    }
+  });
+}
+
+function handleHolidayFile(file) {
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    document.getElementById('holiday-csv-input').value = e.target.result;
+  };
+  reader.readAsText(file);
+}
+
+function registerHolidays() {
+  var csvData = document.getElementById('holiday-csv-input').value.trim();
+  if (!csvData) {
+    showToast('日付データを入力してください', 'error');
+    return;
+  }
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      showToast(result.message, result.success ? 'success' : 'error');
+      if (result.success) {
+        document.getElementById('holiday-csv-input').value = '';
+        loadHolidays();
+      }
+    })
+    .withFailureHandler(handleError)
+    .apiAdminRegisterHolidays(currentToken, csvData);
+}
+
+// ========== 管理者：勤務時間候補 ==========
+function loadShiftOptions() {
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) return;
+      var html = '<table class="admin-table"><thead><tr>' +
+        '<th>表示名</th><th>開始</th><th>終了</th><th>表示順</th><th>有効</th><th>操作</th>' +
+        '</tr></thead><tbody>';
+      result.options.forEach(function(o) {
+        html += '<tr>' +
+          '<td>' + o.label + '</td>' +
+          '<td>' + (o.startTime || '-') + '</td>' +
+          '<td>' + (o.endTime || '-') + '</td>' +
+          '<td>' + (o.sortOrder || 0) + '</td>' +
+          '<td>' + (o.active ? 'はい' : 'いいえ') + '</td>' +
+          '<td><button class="btn btn-sm btn-primary" onclick="showEditOptionModal(\'' +
+          o.optionId + '\')">編集</button></td></tr>';
+      });
+      html += '</tbody></table>';
+      document.getElementById('options-table-container').innerHTML = html;
+    })
+    .withFailureHandler(handleError)
+    .apiAdminGetShiftOptions(currentToken);
+}
+
+function showAddOptionModal() {
+  document.getElementById('modal-option-title').textContent = '勤務時間候補追加';
+  document.getElementById('option-id').value = '';
+  document.getElementById('option-label').value = '';
+  document.getElementById('option-start').value = '';
+  document.getElementById('option-end').value = '';
+  document.getElementById('option-sort').value = '0';
+  document.getElementById('option-active').checked = true;
+  document.getElementById('modal-option').style.display = 'flex';
+}
+
+function showEditOptionModal(optionId) {
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) return;
+      var opt = result.options.find(function(o) { return o.optionId === optionId; });
+      if (!opt) return;
+      document.getElementById('modal-option-title').textContent = '勤務時間候補編集';
+      document.getElementById('option-id').value = opt.optionId;
+      document.getElementById('option-label').value = opt.label;
+      document.getElementById('option-start').value = opt.startTime || '';
+      document.getElementById('option-end').value = opt.endTime || '';
+      document.getElementById('option-sort').value = opt.sortOrder || 0;
+      document.getElementById('option-active').checked =
+        opt.active === true || opt.active === 'TRUE' || opt.active === 'true';
+      document.getElementById('modal-option').style.display = 'flex';
+    })
+    .withFailureHandler(handleError)
+    .apiAdminGetShiftOptions(currentToken);
+}
+
+function saveOption() {
+  var data = {
+    optionId: document.getElementById('option-id').value || null,
+    label: document.getElementById('option-label').value.trim(),
+    startTime: document.getElementById('option-start').value,
+    endTime: document.getElementById('option-end').value,
+    sortOrder: parseInt(document.getElementById('option-sort').value) || 0,
+    active: document.getElementById('option-active').checked
+  };
+
+  if (!data.label) {
+    showToast('表示名は必須です', 'error');
+    return;
+  }
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      showToast(result.message, result.success ? 'success' : 'error');
+      if (result.success) {
+        closeModal('modal-option');
+        loadShiftOptions();
+      }
+    })
+    .withFailureHandler(handleError)
+    .apiAdminSaveShiftOption(currentToken, data);
+}
+
+// ========== 管理者：締切管理 ==========
+function loadLocks() {
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) return;
+      // 月リストも取得
+      google.script.run
+        .withSuccessHandler(function(monthResult) {
+          renderLocksTable(result.locks, monthResult.months);
+        })
+        .apiGetAvailableYearMonths(currentToken);
+    })
+    .withFailureHandler(handleError)
+    .apiAdminGetLocks(currentToken);
+}
+
+function renderLocksTable(locks, months) {
+  var lockMap = {};
+  locks.forEach(function(l) { lockMap[l.yearMonth] = l; });
+
+  var html = '<table class="admin-table"><thead><tr>' +
+    '<th>年月度</th><th>状態</th><th>締切日時</th><th>操作</th>' +
+    '</tr></thead><tbody>';
+
+  months.forEach(function(m) {
+    var lock = lockMap[m.yearMonth];
+    var isLocked = lock && lock.locked;
+    html += '<tr>' +
+      '<td>' + m.label + '</td>' +
+      '<td>' + (isLocked ? '<span style="color:#e74c3c;font-weight:bold;">締切済</span>' : '受付中') + '</td>' +
+      '<td>' + (lock && lock.lockedAt ? lock.lockedAt.substring(0, 16).replace('T', ' ') : '-') + '</td>' +
+      '<td>';
+
+    if (isLocked) {
+      html += '<button class="btn btn-sm btn-success" onclick="toggleLock(\'' +
+        m.yearMonth + '\', false)">締切解除</button>';
+    } else {
+      html += '<button class="btn btn-sm btn-danger" onclick="toggleLock(\'' +
+        m.yearMonth + '\', true)">希望締切</button>';
+    }
+    html += '</td></tr>';
+  });
+
+  html += '</tbody></table>';
+  document.getElementById('locks-table-container').innerHTML = html;
+}
+
+function toggleLock(yearMonth, locked) {
+  var action = locked ? '締切' : '締切解除';
+  if (!confirm(yearMonth + ' の希望を' + action + 'しますか？')) return;
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      showToast(result.message, result.success ? 'success' : 'error');
+      if (result.success) loadLocks();
+    })
+    .withFailureHandler(handleError)
+    .apiAdminSetLock(currentToken, yearMonth, locked);
+}
+
+// ========== 管理者：確定シフト編集 ==========
+function loadFinalShift() {
+  var yearMonth = document.getElementById('final-month-select').value;
+  if (!yearMonth) return;
+
+  document.getElementById('final-shift-table-container').innerHTML = '<div class="loading">読み込み中...</div>';
+
+  google.script.run
+    .withSuccessHandler(function(data) {
+      if (!data.success) return;
+      shiftOptions = data.options;
+      renderFinalShiftTable(data);
+    })
+    .withFailureHandler(handleError)
+    .apiAdminGetShiftFinal(currentToken, yearMonth);
+}
+
+function renderFinalShiftTable(data) {
+  var dates = generateDates(data.dateRange.startDate, data.dateRange.endDate);
+  var optionMap = {};
+  data.options.forEach(function(o) { optionMap[o.optionId] = o; });
+
+  var shiftMap = {};
+  data.shifts.forEach(function(s) {
+    shiftMap[s.employeeId + '_' + s.date] = s.shiftOptionId;
+  });
+
+  var html = '<table><thead><tr><th class="sticky-col">氏名</th>';
+  dates.forEach(function(d) {
+    var dt = new Date(d);
+    var dayNames = ['日','月','火','水','木','金','土'];
+    var dayClass = '';
+    if (dt.getDay() === 0) dayClass = 'col-sun';
+    else if (dt.getDay() === 6) dayClass = 'col-sat';
+    if (data.holidays.includes(d)) dayClass = 'col-holiday';
+    html += '<th class="' + dayClass + '">' + dayNames[dt.getDay()] + '<br>' +
+            (dt.getMonth() + 1) + '/' + dt.getDate() + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  data.users.forEach(function(user) {
+    html += '<tr>';
+    html += '<td class="sticky-col">' + user.name + '</td>';
+
+    dates.forEach(function(d) {
+      var dt = new Date(d);
+      var dayClass = '';
+      if (dt.getDay() === 0) dayClass = 'col-sun';
+      else if (dt.getDay() === 6) dayClass = 'col-sat';
+      if (data.holidays.includes(d)) dayClass = 'col-holiday';
+
+      var optId = shiftMap[user.employeeId + '_' + d] || '';
+      var label = '';
+      var cellClass = 'shift-cell';
+      if (optId && optionMap[optId]) {
+        var opt = optionMap[optId];
+        if (opt.startTime && opt.endTime) {
+          label = opt.startTime + '-' + opt.endTime;
+          cellClass += ' has-shift';
+        } else if (opt.label.includes('公休')) {
+          label = '休';
+          cellClass += ' is-off';
+        } else if (opt.label.includes('有休')) {
+          label = '有休';
+          cellClass += ' is-paid-leave';
+        } else {
+          label = opt.label;
+        }
+      }
+
+      var ymVal = document.getElementById('final-month-select').value;
+      html += '<td class="' + cellClass + ' ' + dayClass +
+              '" data-emp="' + user.employeeId + '" data-date="' + d + '" data-opt="' + optId +
+              '" onclick="openFinalShiftPopup(this, \'' + ymVal + '\', \'' +
+              user.employeeId + '\', \'' + d + '\')">' + label + '</td>';
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  document.getElementById('final-shift-table-container').innerHTML = html;
+}
+
+function openFinalShiftPopup(cell, yearMonth, employeeId, date) {
+  closeShiftPopup();
+
+  var rect = cell.getBoundingClientRect();
+  var popup = document.createElement('div');
+  popup.className = 'shift-popup';
+  popup.style.position = 'fixed';
+  popup.style.top = (rect.bottom + 2) + 'px';
+  popup.style.left = rect.left + 'px';
+
+  var currentOpt = cell.dataset.opt;
+
+  shiftOptions.forEach(function(opt) {
+    var btn = document.createElement('button');
+    var displayLabel = opt.label;
+    if (opt.startTime && opt.endTime) {
+      displayLabel = opt.startTime + '-' + opt.endTime;
+    }
+    btn.textContent = displayLabel;
+    if (opt.optionId === currentOpt) btn.className = 'selected';
+    btn.onclick = function() {
+      saveFinalShiftCell(cell, yearMonth, employeeId, date, opt.optionId, opt);
+      closeShiftPopup();
+    };
+    popup.appendChild(btn);
+  });
+
+  var clearBtn = document.createElement('button');
+  clearBtn.textContent = 'クリア';
+  clearBtn.className = 'popup-clear';
+  clearBtn.onclick = function() {
+    saveFinalShiftCell(cell, yearMonth, employeeId, date, '', null);
+    closeShiftPopup();
+  };
+  popup.appendChild(clearBtn);
+
+  document.body.appendChild(popup);
+  activePopup = popup;
+
+  // 画面外調整
+  var popupRect = popup.getBoundingClientRect();
+  if (popupRect.right > window.innerWidth) {
+    popup.style.left = (window.innerWidth - popupRect.width - 10) + 'px';
+  }
+  if (popupRect.bottom > window.innerHeight) {
+    popup.style.top = (rect.top - popupRect.height - 2) + 'px';
+  }
+}
+
+function saveFinalShiftCell(cell, yearMonth, employeeId, date, optionId, opt) {
+  cell.dataset.opt = optionId;
+  cell.className = cell.className.replace(/ has-shift| is-off| is-paid-leave/g, '');
+
+  if (opt) {
+    if (opt.startTime && opt.endTime) {
+      cell.textContent = opt.startTime + '-' + opt.endTime;
+      cell.classList.add('has-shift');
+    } else if (opt.label.includes('公休')) {
+      cell.textContent = '休';
+      cell.classList.add('is-off');
+    } else if (opt.label.includes('有休')) {
+      cell.textContent = '有休';
+      cell.classList.add('is-paid-leave');
+    } else {
+      cell.textContent = opt.label;
+    }
+  } else {
+    cell.textContent = '';
+  }
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) {
+        showToast('保存に失敗しました', 'error');
+        loadFinalShift();
+      }
+    })
+    .withFailureHandler(function(err) {
+      showToast('保存エラー: ' + err.message, 'error');
+    })
+    .apiAdminSaveShiftFinal(currentToken, yearMonth, employeeId, date, optionId);
+}
+
+function copyRequestsToFinal() {
+  var yearMonth = document.getElementById('final-month-select').value;
+  if (!confirm(yearMonth + ' の希望シフトを確定シフトにコピーしますか？\n既存の確定シフトは上書きされます。')) return;
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      showToast(result.success ? 'コピーしました（' + result.count + '件）' : '失敗しました',
+                result.success ? 'success' : 'error');
+      if (result.success) loadFinalShift();
+    })
+    .withFailureHandler(handleError)
+    .apiAdminCopyRequestsToFinal(currentToken, yearMonth);
+}
+
+// ========== 管理者：Excel出力 ==========
+function exportExcel() {
+  var yearMonth = document.getElementById('export-month-select').value;
+  if (!yearMonth) {
+    showToast('対象年月度を選択してください', 'error');
+    return;
+  }
+
+  document.getElementById('export-result').innerHTML = '<div class="loading">ファイル作成中...</div>';
+  showLoading();
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result.success) {
+        document.getElementById('export-result').innerHTML =
+          '<div class="notice notice-info">' + result.message + '<br>' +
+          '<a href="' + result.fileUrl + '" target="_blank" style="font-weight:bold;">' +
+          result.fileName + ' を開く</a></div>';
+      } else {
+        document.getElementById('export-result').innerHTML =
+          '<div class="notice notice-danger">' + result.message + '</div>';
+      }
+    })
+    .withFailureHandler(function(err) {
+      hideLoading();
+      document.getElementById('export-result').innerHTML =
+        '<div class="notice notice-danger">エラー: ' + err.message + '</div>';
+    })
+    .apiAdminCreateExcelFile(currentToken, yearMonth);
+}
+
+// ========== ユーティリティ ==========
+function generateDates(startDate, endDate) {
+  var dates = [];
+  var current = new Date(startDate);
+  var end = new Date(endDate);
+  while (current <= end) {
+    var y = current.getFullYear();
+    var m = ('0' + (current.getMonth() + 1)).slice(-2);
+    var d = ('0' + current.getDate()).slice(-2);
+    dates.push(y + '-' + m + '-' + d);
+    current.setDate(current.getDate() + 1);
+  }
+  return dates;
+}
+
+function closeModal(id) {
+  document.getElementById(id).style.display = 'none';
+}
+
+function showError(id, msg) {
+  var el = document.getElementById(id);
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function hideError(id) {
+  var el = document.getElementById(id);
+  el.style.display = 'none';
+}
+
+function showLoading() {
+  document.getElementById('loading-overlay').style.display = 'flex';
+}
+
+function hideLoading() {
+  document.getElementById('loading-overlay').style.display = 'none';
+}
+
+function handleError(err) {
+  hideLoading();
+  showToast('エラー: ' + err.message, 'error');
+}
+
+function showToast(message, type) {
+  type = type || 'info';
+  var container = document.getElementById('toast-container');
+  var toast = document.createElement('div');
+  toast.className = 'toast toast-' + type;
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(function() {
+    toast.style.opacity = '0';
+    toast.style.transition = 'opacity 0.3s';
+    setTimeout(function() { toast.remove(); }, 300);
+  }, 3000);
+}
+</script>

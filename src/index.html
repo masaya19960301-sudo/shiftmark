@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>シフト表管理システム</title>
+  <?!= include('css'); ?>
+</head>
+<body>
+  <!-- ヘッダー -->
+  <header id="app-header" style="display:none;">
+    <div class="header-content">
+      <h1 class="header-title">シフト表管理</h1>
+      <div class="header-right">
+        <span id="header-user-name"></span>
+        <button class="btn btn-sm btn-outline" onclick="showPasswordChange()">パスワード変更</button>
+        <button class="btn btn-sm btn-danger" onclick="doLogout()">ログアウト</button>
+      </div>
+    </div>
+    <!-- ナビゲーション -->
+    <nav id="main-nav">
+      <button class="nav-btn active" data-page="shift-input" onclick="navigateTo('shift-input')">希望入力</button>
+      <button class="nav-btn" data-page="shift-view" onclick="navigateTo('shift-view')">シフト閲覧</button>
+      <div id="admin-nav" style="display:none;">
+        <span class="nav-divider">|</span>
+        <button class="nav-btn" data-page="admin-users" onclick="navigateTo('admin-users')">ユーザー管理</button>
+        <button class="nav-btn" data-page="admin-month" onclick="navigateTo('admin-month')">月度設定</button>
+        <button class="nav-btn" data-page="admin-holidays-req" onclick="navigateTo('admin-holidays-req')">公休日管理</button>
+        <button class="nav-btn" data-page="admin-holidays" onclick="navigateTo('admin-holidays')">祝日登録</button>
+        <button class="nav-btn" data-page="admin-options" onclick="navigateTo('admin-options')">勤務時間候補</button>
+        <button class="nav-btn" data-page="admin-locks" onclick="navigateTo('admin-locks')">締切管理</button>
+        <button class="nav-btn" data-page="admin-final" onclick="navigateTo('admin-final')">確定シフト</button>
+        <button class="nav-btn" data-page="admin-export" onclick="navigateTo('admin-export')">Excel出力</button>
+      </div>
+    </nav>
+  </header>
+
+  <!-- メインコンテンツ -->
+  <main id="app-content">
+    <!-- ログイン画面 -->
+    <div id="page-login" class="page">
+      <div class="login-container">
+        <h2>シフト表管理システム</h2>
+        <p class="login-subtitle">ログイン</p>
+        <div class="form-group">
+          <label>社員番号</label>
+          <input type="text" id="login-id" placeholder="社員番号を入力" autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label>パスワード</label>
+          <input type="password" id="login-password" placeholder="パスワードを入力" autocomplete="current-password">
+        </div>
+        <div id="login-error" class="error-msg" style="display:none;"></div>
+        <button class="btn btn-primary btn-full" onclick="doLogin()">ログイン</button>
+      </div>
+    </div>
+
+    <!-- パスワード変更モーダル -->
+    <div id="modal-password" class="modal" style="display:none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>パスワード変更</h3>
+          <button class="modal-close" onclick="closeModal('modal-password')">&times;</button>
+        </div>
+        <div class="form-group">
+          <label>現在のパスワード</label>
+          <input type="password" id="pw-current">
+        </div>
+        <div class="form-group">
+          <label>新しいパスワード</label>
+          <input type="password" id="pw-new">
+        </div>
+        <div class="form-group">
+          <label>新しいパスワード（確認）</label>
+          <input type="password" id="pw-confirm">
+        </div>
+        <div id="pw-error" class="error-msg" style="display:none;"></div>
+        <button class="btn btn-primary" onclick="doChangePassword()">変更</button>
+      </div>
+    </div>
+
+    <!-- 希望シフト入力ページ -->
+    <div id="page-shift-input" class="page" style="display:none;">
+      <div class="page-header">
+        <h2>希望シフト入力</h2>
+        <div class="month-selector">
+          <button class="btn btn-sm" onclick="changeMonth('input', -1)">&lt; 前月</button>
+          <select id="input-month-select" onchange="loadShiftInput()"></select>
+          <button class="btn btn-sm" onclick="changeMonth('input', 1)">次月 &gt;</button>
+        </div>
+      </div>
+      <div id="input-lock-notice" class="notice notice-warning" style="display:none;">
+        この月度は締切済みです。閲覧のみ可能です。
+      </div>
+      <div id="input-days-off-info" class="notice notice-info" style="display:none;"></div>
+      <div id="shift-input-table-container" class="table-scroll">
+        <div class="loading">読み込み中...</div>
+      </div>
+    </div>
+
+    <!-- シフト閲覧ページ -->
+    <div id="page-shift-view" class="page" style="display:none;">
+      <div class="page-header">
+        <h2>シフト閲覧</h2>
+        <div class="month-selector">
+          <button class="btn btn-sm" onclick="changeMonth('view', -1)">&lt; 前月</button>
+          <select id="view-month-select" onchange="loadShiftView()"></select>
+          <button class="btn btn-sm" onclick="changeMonth('view', 1)">次月 &gt;</button>
+        </div>
+      </div>
+      <div id="view-source-notice" class="notice notice-info" style="display:none;"></div>
+      <div id="shift-view-table-container" class="table-scroll">
+        <div class="loading">読み込み中...</div>
+      </div>
+    </div>
+
+    <!-- 管理者：ユーザー管理 -->
+    <div id="page-admin-users" class="page" style="display:none;">
+      <div class="page-header">
+        <h2>ユーザー管理</h2>
+        <button class="btn btn-primary" onclick="showAddUserModal()">+ ユーザー追加</button>
+      </div>
+      <div id="users-table-container">
+        <div class="loading">読み込み中...</div>
+      </div>
+    </div>
+
+    <!-- ユーザー追加/編集モーダル -->
+    <div id="modal-user" class="modal" style="display:none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="modal-user-title">ユーザー登録</h3>
+          <button class="modal-close" onclick="closeModal('modal-user')">&times;</button>
+        </div>
+        <div class="form-group">
+          <label>社員番号</label>
+          <input type="text" id="user-employee-id">
+        </div>
+        <div class="form-group">
+          <label>氏名</label>
+          <input type="text" id="user-name">
+        </div>
+        <div class="form-group">
+          <label>権限</label>
+          <select id="user-role">
+            <option value="user">一般ユーザー</option>
+            <option value="admin">管理者</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>区分</label>
+          <select id="user-category">
+            <option value="社員">社員</option>
+            <option value="フレックス">フレックス</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>有休1日の時間数</label>
+          <input type="number" id="user-paid-leave-hours" value="8" min="1" max="24">
+        </div>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="user-include-pl"> 有休を公休に含める
+          </label>
+        </div>
+        <div id="user-password-group" class="form-group">
+          <label>初期パスワード</label>
+          <input type="text" id="user-password" value="password">
+        </div>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="user-active" checked> 有効
+          </label>
+        </div>
+        <div id="user-error" class="error-msg" style="display:none;"></div>
+        <button class="btn btn-primary" id="btn-save-user" onclick="saveUser()">登録</button>
+      </div>
+    </div>
+
+    <!-- 管理者：月度設定 -->
+    <div id="page-admin-month" class="page" style="display:none;">
+      <div class="page-header">
+        <h2>月度設定（締め期間）</h2>
+      </div>
+      <div class="card">
+        <h3>新規/編集</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>年月度</label>
+            <input type="month" id="month-def-ym">
+          </div>
+          <div class="form-group">
+            <label>開始日</label>
+            <input type="date" id="month-def-start">
+          </div>
+          <div class="form-group">
+            <label>終了日</label>
+            <input type="date" id="month-def-end">
+          </div>
+          <div class="form-group">
+            <label>適用開始年月</label>
+            <input type="month" id="month-def-effective">
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="saveMonthDef()">保存</button>
+      </div>
+      <div id="month-def-table-container" style="margin-top:20px;">
+        <div class="loading">読み込み中...</div>
+      </div>
+    </div>
+
+    <!-- 管理者：必要公休日管理 -->
+    <div id="page-admin-holidays-req" class="page" style="display:none;">
+      <div class="page-header">
+        <h2>必要公休日管理</h2>
+      </div>
+      <div class="card">
+        <h3>公休日数設定</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>年月度</label>
+            <input type="month" id="req-hol-ym">
+          </div>
+          <div class="form-group">
+            <label>必要公休日数</label>
+            <input type="number" id="req-hol-days" min="0" max="31">
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="saveReqHolidays()">保存</button>
+      </div>
+      <div id="req-hol-table-container" style="margin-top:20px;">
+        <div class="loading">読み込み中...</div>
+      </div>
+    </div>
+
+    <!-- 管理者：祝日登録 -->
+    <div id="page-admin-holidays" class="page" style="display:none;">
+      <div class="page-header">
+        <h2>祝日登録</h2>
+      </div>
+      <div class="card">
+        <h3>Excelファイルから登録</h3>
+        <p class="hint">日付一覧（yyyy/mm/dd等）を含むExcel/CSVファイルをドラッグ&ドロップ、<br>またはテキストエリアに貼り付けてください。</p>
+        <div id="holiday-drop-zone" class="drop-zone">
+          ファイルをドラッグ&ドロップ
+          <input type="file" id="holiday-file-input" accept=".csv,.xlsx,.xls,.txt" style="display:none;">
+          <br><button class="btn btn-sm" onclick="document.getElementById('holiday-file-input').click()">ファイルを選択</button>
+        </div>
+        <div class="form-group" style="margin-top:10px;">
+          <label>または日付データを貼り付け（1行1日付）</label>
+          <textarea id="holiday-csv-input" rows="6" placeholder="2025/01/01&#10;2025/01/13&#10;2025/02/11"></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="registerHolidays()">登録</button>
+      </div>
+      <div id="holidays-list-container" style="margin-top:20px;">
+        <div class="loading">読み込み中...</div>
+      </div>
+    </div>
+
+    <!-- 管理者：勤務時間候補 -->
+    <div id="page-admin-options" class="page" style="display:none;">
+      <div class="page-header">
+        <h2>勤務時間候補管理</h2>
+        <button class="btn btn-primary" onclick="showAddOptionModal()">+ 候補追加</button>
+      </div>
+      <div id="options-table-container">
+        <div class="loading">読み込み中...</div>
+      </div>
+    </div>
+
+    <!-- 勤務時間候補モーダル -->
+    <div id="modal-option" class="modal" style="display:none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="modal-option-title">勤務時間候補</h3>
+          <button class="modal-close" onclick="closeModal('modal-option')">&times;</button>
+        </div>
+        <div class="form-group">
+          <label>表示名</label>
+          <input type="text" id="option-label" placeholder="例: 9:00-18:00">
+        </div>
+        <div class="form-group">
+          <label>開始時刻（空＝公休/有休）</label>
+          <input type="time" id="option-start">
+        </div>
+        <div class="form-group">
+          <label>終了時刻（空＝公休/有休）</label>
+          <input type="time" id="option-end">
+        </div>
+        <div class="form-group">
+          <label>表示順</label>
+          <input type="number" id="option-sort" value="0">
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="option-active" checked> 有効</label>
+        </div>
+        <input type="hidden" id="option-id">
+        <button class="btn btn-primary" onclick="saveOption()">保存</button>
+      </div>
+    </div>
+
+    <!-- 管理者：締切管理 -->
+    <div id="page-admin-locks" class="page" style="display:none;">
+      <div class="page-header">
+        <h2>締切管理</h2>
+      </div>
+      <div id="locks-table-container">
+        <div class="loading">読み込み中...</div>
+      </div>
+    </div>
+
+    <!-- 管理者：確定シフト編集 -->
+    <div id="page-admin-final" class="page" style="display:none;">
+      <div class="page-header">
+        <h2>確定シフト編集</h2>
+        <div class="month-selector">
+          <button class="btn btn-sm" onclick="changeMonth('final', -1)">&lt; 前月</button>
+          <select id="final-month-select" onchange="loadFinalShift()"></select>
+          <button class="btn btn-sm" onclick="changeMonth('final', 1)">次月 &gt;</button>
+          <button class="btn btn-primary btn-sm" onclick="copyRequestsToFinal()" style="margin-left:10px;">希望から一括コピー</button>
+        </div>
+      </div>
+      <div id="final-shift-table-container" class="table-scroll">
+        <div class="loading">読み込み中...</div>
+      </div>
+    </div>
+
+    <!-- 管理者：Excel出力 -->
+    <div id="page-admin-export" class="page" style="display:none;">
+      <div class="page-header">
+        <h2>Excel出力</h2>
+      </div>
+      <div class="card">
+        <div class="form-group">
+          <label>対象年月度</label>
+          <select id="export-month-select"></select>
+        </div>
+        <button class="btn btn-primary" onclick="exportExcel()">Excelファイルを作成</button>
+        <div id="export-result" style="margin-top:15px;"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- トースト通知 -->
+  <div id="toast-container"></div>
+
+  <!-- ローディングオーバーレイ -->
+  <div id="loading-overlay" style="display:none;">
+    <div class="spinner"></div>
+  </div>
+
+  <?!= include('js'); ?>
+</body>
+</html>
