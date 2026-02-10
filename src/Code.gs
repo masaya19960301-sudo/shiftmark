@@ -223,3 +223,17 @@ function normalizeYearMonth(val) {
   // 文字列の場合そのまま（"2025-03"形式を想定）
   return String(val);
 }
+
+/**
+ * デフォルト反映済みフラグを設定
+ */
+function markDefaultsGeneratedForMonth(yearMonth) {
+  PropertiesService.getScriptProperties().setProperty('defaults_gen_' + normalizeYearMonth(yearMonth), 'true');
+}
+
+/**
+ * デフォルト反映済みかどうかを確認
+ */
+function isDefaultsGeneratedForMonth(yearMonth) {
+  return PropertiesService.getScriptProperties().getProperty('defaults_gen_' + normalizeYearMonth(yearMonth)) === 'true';
+}

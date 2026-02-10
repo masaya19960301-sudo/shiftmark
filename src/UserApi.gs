@@ -33,6 +33,9 @@ function apiGetShiftInputData(token, yearMonth) {
     includePaidLeaveInDaysOff: myUser.includePaidLeaveInDaysOff
   } : {};
 
+  // デフォルト反映済みかチェック
+  const defaultsGenerated = isDefaultsGeneratedForMonth(yearMonth);
+
   return {
     success: true,
     yearMonth: yearMonth,
@@ -45,7 +48,8 @@ function apiGetShiftInputData(token, yearMonth) {
     otherRequests: otherRequests,
     users: users,
     requiredDaysOff: reqHolidays ? reqHolidays.requiredDaysOff : null,
-    myInfo: myInfo
+    myInfo: myInfo,
+    defaultsGenerated: defaultsGenerated
   };
 }
 
@@ -55,6 +59,13 @@ function apiGetShiftInputData(token, yearMonth) {
 function apiSaveShiftRequest(token, yearMonth, date, shiftOptionId) {
   const session = validateSession(token);
   if (!session) return { success: false, message: 'セッションが無効です' };
+
+  // デフォルト反映チェック（管理者以外はデフォルト反映前は入力不可）
+  if (session.role !== 'admin') {
+    if (!isDefaultsGeneratedForMonth(yearMonth)) {
+      return { success: false, message: '管理者がデフォルトシフトを反映するまで入力できません' };
+    }
+  }
 
   // 締切チェック（管理者は締切後も編集可）
   if (session.role !== 'admin') {

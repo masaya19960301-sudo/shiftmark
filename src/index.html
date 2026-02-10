@@ -89,8 +89,11 @@
           <button class="btn btn-sm" onclick="changeMonth('input', -1)">&lt; 前月</button>
           <select id="input-month-select" onchange="loadShiftInput()"></select>
           <button class="btn btn-sm" onclick="changeMonth('input', 1)">次月 &gt;</button>
-          <button class="btn btn-primary btn-sm" onclick="generateMyShiftFromDefaults()" style="margin-left:10px;">デフォルトから生成</button>
+          <button id="btn-generate-requests" class="btn btn-primary btn-sm" onclick="generateAllRequestsFromDefaults()" style="margin-left:10px; display:none;">デフォルトから反映</button>
         </div>
+      </div>
+      <div id="input-defaults-notice" class="notice notice-warning" style="display:none;">
+        管理者がデフォルトシフトを反映するまで入力できません。
       </div>
       <div id="input-lock-notice" class="notice notice-warning" style="display:none;">
         この月度は締切済みです。閲覧のみ可能です。

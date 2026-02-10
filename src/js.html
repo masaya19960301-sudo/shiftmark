@@ -247,6 +247,19 @@ function loadShiftInput() {
         return;
       }
       shiftOptions = data.options;
+
+      // 管理者のみ「デフォルトから反映」ボタンを表示
+      var genBtn = document.getElementById('btn-generate-requests');
+      genBtn.style.display = data.isAdmin ? 'inline-block' : 'none';
+
+      // デフォルト未反映の通知
+      var defaultsNotice = document.getElementById('input-defaults-notice');
+      if (!data.defaultsGenerated && !data.isAdmin) {
+        defaultsNotice.style.display = 'block';
+      } else {
+        defaultsNotice.style.display = 'none';
+      }
+
       renderShiftInputTable(data);
       updateDaysOffInfo(yearMonth);
     })
@@ -263,7 +276,8 @@ function renderShiftInputTable(data) {
   var lockNotice = document.getElementById('input-lock-notice');
   lockNotice.style.display = (data.locked && !data.isAdmin) ? 'block' : 'none';
 
-  var editable = !data.locked || data.isAdmin;
+  // デフォルト未反映なら一般ユーザーは編集不可
+  var editable = (data.defaultsGenerated || data.isAdmin) && (!data.locked || data.isAdmin);
 
   // ユーザーリスト（本人を最上段に）
   var myId = currentUser.employeeId;
@@ -577,7 +591,8 @@ function renderUsersTable(users) {
       '<td>' + (u.active ? 'はい' : 'いいえ') + '</td>' +
       '<td>' +
       '<button class="btn btn-sm btn-primary" onclick="showEditUserModal(\'' + u.employeeId + '\')">編集</button> ' +
-      '<button class="btn btn-sm btn-warning" onclick="resetPassword(\'' + u.employeeId + '\')">PW初期化</button>' +
+      '<button class="btn btn-sm btn-warning" onclick="resetPassword(\'' + u.employeeId + '\')">PW初期化</button> ' +
+      '<button class="btn btn-sm btn-danger" onclick="deleteUserConfirm(\'' + u.employeeId + '\', \'' + u.name.replace(/'/g, "\\'") + '\')">削除</button>' +
       '</td></tr>';
   });
 
@@ -691,6 +706,19 @@ function resetPassword(employeeId) {
     })
     .withFailureHandler(handleError)
     .apiAdminResetPassword(currentToken, employeeId, 'password');
+}
+
+function deleteUserConfirm(employeeId, name) {
+  if (!confirm(name + ' (' + employeeId + ') を削除しますか？\nこの操作は元に戻せません。')) return;
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      showToast(result.message, result.success ? 'success' : 'error');
+      if (result.success) loadAdminUsers();
+    })
+    .withFailureHandler(handleError)
+    .apiAdminDeleteUser(currentToken, employeeId);
 }
 
 // ========== 管理者：月度設定 ==========
@@ -1251,24 +1279,45 @@ function saveUserDefaultRow(employeeId) {
 }
 
 // ========== 自動生成（デフォルトから） ==========
-function generateMyShiftFromDefaults() {
+function generateAllRequestsFromDefaults() {
   var yearMonth = document.getElementById('input-month-select').value;
   if (!yearMonth) return;
-  if (!confirm(yearMonth + ' の希望シフトをデフォルト設定から自動生成しますか？\n既存の希望は上書きされます。')) return;
 
+  // まず既存の希望がデフォルトと異なるかチェック
   showLoading();
   google.script.run
-    .withSuccessHandler(function(result) {
+    .withSuccessHandler(function(checkResult) {
       hideLoading();
-      if (result.success) {
-        showToast('デフォルトから生成しました（' + result.count + '件）', 'success');
-        loadShiftInput();
-      } else {
-        showToast(result.message, 'error');
+      if (!checkResult.success) {
+        showToast(checkResult.message, 'error');
+        return;
       }
+
+      var msg = yearMonth + ' の希望シフトをデフォルト設定から全ユーザー一括反映しますか？';
+      if (checkResult.hasModified) {
+        msg += '\n\n[警告] デフォルトと異なる希望が ' + checkResult.modifiedCount + ' 件あります。上書きされます。';
+      } else if (checkResult.requestCount > 0) {
+        msg += '\n既存の希望は上書きされます。';
+      }
+
+      if (!confirm(msg)) return;
+
+      showLoading();
+      google.script.run
+        .withSuccessHandler(function(result) {
+          hideLoading();
+          if (result.success) {
+            showToast('デフォルトから反映しました（' + result.count + '件）', 'success');
+            loadShiftInput();
+          } else {
+            showToast(result.message, 'error');
+          }
+        })
+        .withFailureHandler(handleError)
+        .apiAdminGenerateAllRequestsFromDefaults(currentToken, yearMonth);
     })
     .withFailureHandler(handleError)
-    .apiGenerateMyShiftFromDefaults(currentToken, yearMonth);
+    .apiAdminCheckRequestsVsDefaults(currentToken, yearMonth);
 }
 
 function generateFinalFromDefaults() {

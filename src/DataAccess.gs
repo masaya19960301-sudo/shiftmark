@@ -93,11 +93,26 @@ function addUser(userData) {
     userData.includePaidLeaveInDaysOff || false,
     true
   ]);
-  // 社員番号のセルをテキスト形式に設定（数値変換防止）
+  // 社員番号のセルをテキスト形式に設定し、値を再セット（先頭ゼロ保持）
   const lastRow = sheet.getLastRow();
-  sheet.getRange(lastRow, 1).setNumberFormat('@');
+  sheet.getRange(lastRow, 1).setNumberFormat('@').setValue(empId);
 
   return { success: true, message: 'ユーザーを登録しました' };
+}
+
+/**
+ * ユーザー削除
+ */
+function deleteUser(employeeId) {
+  const user = findUserByEmployeeId(employeeId);
+  if (!user) {
+    return { success: false, message: 'ユーザーが見つかりません' };
+  }
+
+  const sheet = getOrCreateSheet(SHEET_NAMES.USERS);
+  sheet.deleteRow(user._row);
+  SpreadsheetApp.flush();
+  return { success: true, message: 'ユーザーを削除しました' };
 }
 
 /**
@@ -466,7 +481,7 @@ function saveUserDefaults(employeeId, defaults) {
     if (optId) {
       sheet.appendRow([targetEmp, day, optId]);
       const lastRow = sheet.getLastRow();
-      sheet.getRange(lastRow, 1).setNumberFormat('@');
+      sheet.getRange(lastRow, 1).setNumberFormat('@').setValue(targetEmp);
     }
   }
   SpreadsheetApp.flush();
@@ -509,6 +524,81 @@ function generateShiftFromDefaults(yearMonth, employeeId) {
   });
 
   return { success: true, count: count };
+}
+
+/**
+ * デフォルトシフトから希望シフトを全ユーザー一括自動生成（管理者用）
+ */
+function generateAllRequestsFromDefaults(yearMonth) {
+  const users = getAllActiveUsers();
+  const allDefaults = getAllUserDefaults();
+  const dateRange = getDateRangeForYearMonth(yearMonth);
+  const dates = generateDateList(dateRange.startDate, dateRange.endDate);
+  const holidays = getHolidays();
+
+  let totalCount = 0;
+  users.forEach(user => {
+    const empId = String(user.employeeId);
+    const defaults = allDefaults[empId];
+    if (!defaults || Object.keys(defaults).length === 0) return;
+
+    const holidayOpt = defaults['0'] || '';
+
+    dates.forEach(dateStr => {
+      const dt = new Date(dateStr);
+      const dow = dt.getDay();
+      let optId;
+
+      if (holidays.includes(dateStr)) {
+        optId = holidayOpt;
+      } else {
+        optId = defaults[String(dow)] || '';
+      }
+
+      if (optId) {
+        saveShiftRequest(yearMonth, empId, dateStr, optId);
+        totalCount++;
+      }
+    });
+  });
+
+  markDefaultsGeneratedForMonth(yearMonth);
+  return { success: true, count: totalCount };
+}
+
+/**
+ * 既存の希望シフトがデフォルトと異なるかチェック
+ */
+function checkRequestsVsDefaults(yearMonth) {
+  const allRequests = getShiftRequests(yearMonth);
+  if (allRequests.length === 0) {
+    return { hasModified: false, requestCount: 0, modifiedCount: 0 };
+  }
+
+  const allDefaults = getAllUserDefaults();
+  const holidays = getHolidays();
+
+  let modifiedCount = 0;
+  allRequests.forEach(req => {
+    const defaults = allDefaults[req.employeeId];
+    if (!defaults) { modifiedCount++; return; }
+
+    const dt = new Date(req.date);
+    const dow = dt.getDay();
+    let expectedOptId;
+
+    if (holidays.includes(req.date)) {
+      expectedOptId = defaults['0'] || '';
+    } else {
+      expectedOptId = defaults[String(dow)] || '';
+    }
+
+    if (req.shiftOptionId !== expectedOptId) {
+      modifiedCount++;
+    }
+  });
+
+  return { hasModified: modifiedCount > 0, modifiedCount: modifiedCount, requestCount: allRequests.length };
 }
 
 /**
@@ -608,7 +698,7 @@ function saveShiftRequest(yearMonth, employeeId, date, shiftOptionId) {
     sheet.appendRow([String(yearMonth), targetEmp, formattedDate, String(shiftOptionId), new Date().toISOString()]);
     const lastRow = sheet.getLastRow();
     sheet.getRange(lastRow, 1).setNumberFormat('@');
-    sheet.getRange(lastRow, 2).setNumberFormat('@');
+    sheet.getRange(lastRow, 2).setNumberFormat('@').setValue(targetEmp);
     SpreadsheetApp.flush();
   }
   return { success: true };
@@ -670,7 +760,7 @@ function saveShiftFinal(yearMonth, employeeId, date, shiftOptionId) {
     sheet.appendRow([String(yearMonth), targetEmp, formattedDate, String(shiftOptionId), new Date().toISOString()]);
     const lastRow = sheet.getLastRow();
     sheet.getRange(lastRow, 1).setNumberFormat('@');
-    sheet.getRange(lastRow, 2).setNumberFormat('@');
+    sheet.getRange(lastRow, 2).setNumberFormat('@').setValue(targetEmp);
     SpreadsheetApp.flush();
   }
   return { success: true };

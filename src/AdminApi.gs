@@ -45,6 +45,20 @@ function apiAdminResetPassword(token, employeeId, newPassword) {
   return { success: false, message: 'パスワードリセットに失敗しました' };
 }
 
+/**
+ * ユーザー削除（管理者）
+ */
+function apiAdminDeleteUser(token, employeeId) {
+  const auth = requireAdmin(token);
+  if (!auth.valid) return { success: false, message: auth.message };
+
+  if (String(auth.session.employeeId) === String(employeeId)) {
+    return { success: false, message: '自分自身は削除できません' };
+  }
+
+  return deleteUser(employeeId);
+}
+
 // ========== 月度設定 ==========
 
 /**
@@ -264,6 +278,27 @@ function apiAdminGetAllUserDefaults(token) {
     allDefaults: allDefaults,
     options: options
   };
+}
+
+/**
+ * デフォルトから希望シフトを全ユーザー一括生成（管理者）
+ */
+function apiAdminGenerateAllRequestsFromDefaults(token, yearMonth) {
+  const auth = requireAdmin(token);
+  if (!auth.valid) return { success: false, message: auth.message };
+
+  return generateAllRequestsFromDefaults(yearMonth);
+}
+
+/**
+ * 既存の希望シフトがデフォルトと異なるかチェック（管理者）
+ */
+function apiAdminCheckRequestsVsDefaults(token, yearMonth) {
+  const auth = requireAdmin(token);
+  if (!auth.valid) return { success: false, message: auth.message };
+
+  const result = checkRequestsVsDefaults(yearMonth);
+  return { success: true, hasModified: result.hasModified, modifiedCount: result.modifiedCount, requestCount: result.requestCount };
 }
 
 /**
