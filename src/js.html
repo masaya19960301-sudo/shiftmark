@@ -37,8 +37,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ========== 認証 ==========
 function doLogin() {
-  const id = document.getElementById('login-id').value.trim();
-  const pw = document.getElementById('login-password').value;
+  const id = String(document.getElementById('login-id').value).trim();
+  const pw = String(document.getElementById('login-password').value);
   if (!id || !pw) {
     showError('login-error', '社員番号とパスワードを入力してください');
     return;
@@ -50,6 +50,8 @@ function doLogin() {
       if (result.success) {
         currentToken = result.token;
         currentUser = result.user;
+        // employeeIdを文字列として保持
+        currentUser.employeeId = String(currentUser.employeeId);
         sessionStorage.setItem('token', currentToken);
         sessionStorage.setItem('user', JSON.stringify(currentUser));
         showApp();
@@ -61,7 +63,7 @@ function doLogin() {
       hideLoading();
       showError('login-error', 'ログインに失敗しました: ' + err.message);
     })
-    .login(id, pw);
+    .login(String(id), String(pw));
 }
 
 function doLogout() {

@@ -10,7 +10,10 @@ const SESSION_DURATION = 21600; // 6時間（秒）
  * ログイン処理
  */
 function login(employeeId, password) {
-  const user = findUserByEmployeeId(employeeId);
+  const empIdStr = String(employeeId);
+  const pwStr = String(password);
+
+  const user = findUserByEmployeeId(empIdStr);
   if (!user) {
     return { success: false, message: '社員番号またはパスワードが正しくありません' };
   }
@@ -18,15 +21,15 @@ function login(employeeId, password) {
     return { success: false, message: 'このアカウントは無効です' };
   }
 
-  const inputHash = hashPassword(password);
-  if (inputHash !== user.password) {
+  const inputHash = hashPassword(pwStr);
+  if (inputHash !== String(user.password)) {
     return { success: false, message: '社員番号またはパスワードが正しくありません' };
   }
 
   // セッショントークン生成
   const token = Utilities.getUuid();
   const sessionData = JSON.stringify({
-    employeeId: user.employeeId,
+    employeeId: String(user.employeeId),
     name: user.name,
     role: user.role,
     category: user.category,
@@ -90,8 +93,8 @@ function changePassword(token, currentPassword, newPassword) {
     return { success: false, message: 'ユーザーが見つかりません。' };
   }
 
-  const currentHash = hashPassword(currentPassword);
-  if (currentHash !== user.password) {
+  const currentHash = hashPassword(String(currentPassword));
+  if (currentHash !== String(user.password)) {
     return { success: false, message: '現在のパスワードが正しくありません。' };
   }
 

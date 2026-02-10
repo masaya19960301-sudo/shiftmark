@@ -133,12 +133,13 @@ function setupSpreadsheet() {
 }
 
 /**
- * パスワードハッシュ化
+ * パスワードハッシュ化（引数は必ず文字列化）
  */
 function hashPassword(password) {
+  const pw = String(password);
   const rawHash = Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256,
-    password + 'shiftapp_salt_v1',
+    pw + 'shiftapp_salt_v1',
     Utilities.Charset.UTF_8
   );
   return rawHash.map(function(byte) {
@@ -150,8 +151,16 @@ function hashPassword(password) {
  * 日付をyyyy-MM-dd文字列に変換
  */
 function formatDate(date) {
+  if (!date) return '';
   if (typeof date === 'string') return date;
+  if (date instanceof Date) {
+    const year = date.getFullYear();
+    const month = ('0' + (date.getMonth() + 1)).slice(-2);
+    const day = ('0' + date.getDate()).slice(-2);
+    return year + '-' + month + '-' + day;
+  }
   const d = new Date(date);
+  if (isNaN(d.getTime())) return String(date);
   const year = d.getFullYear();
   const month = ('0' + (d.getMonth() + 1)).slice(-2);
   const day = ('0' + d.getDate()).slice(-2);
@@ -163,4 +172,17 @@ function formatDate(date) {
  */
 function formatYearMonth(year, month) {
   return year + '-' + ('0' + month).slice(-2);
+}
+
+/**
+ * yearMonth値を正規化（Date/数値/文字列→"YYYY-MM"文字列）
+ * Google Sheetsが"2025-03"を日付型に自動変換する問題に対応
+ */
+function normalizeYearMonth(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    return val.getFullYear() + '-' + ('0' + (val.getMonth() + 1)).slice(-2);
+  }
+  // 文字列の場合そのまま（"2025-03"形式を想定）
+  return String(val);
 }
