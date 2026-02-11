@@ -644,6 +644,31 @@ function renderUsersTable(users) {
   document.getElementById('users-table-container').innerHTML = html;
 }
 
+function loadPaidLeaveOptions(selectedStart, selectedEnd) {
+  var select = document.getElementById('user-pl-option');
+  select.innerHTML = '<option value="">-- なし --</option>';
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) return;
+      result.options.forEach(function(o) {
+        if (o.startTime && o.endTime) {
+          var opt = document.createElement('option');
+          opt.value = o.optionId;
+          opt.dataset.start = o.startTime;
+          opt.dataset.end = o.endTime;
+          opt.dataset.code = o.code || '';
+          opt.textContent = o.startTime + '-' + o.endTime + (o.code ? ' [' + o.code + ']' : '');
+          if (selectedStart && selectedEnd && o.startTime === selectedStart && o.endTime === selectedEnd) {
+            opt.selected = true;
+          }
+          select.appendChild(opt);
+        }
+      });
+    })
+    .withFailureHandler(function() {})
+    .apiAdminGetShiftOptions(currentToken);
+}
+
 function showAddUserModal() {
   document.getElementById('modal-user-title').textContent = 'ユーザー登録';
   document.getElementById('user-employee-id').value = '';
@@ -656,8 +681,7 @@ function showAddUserModal() {
   document.getElementById('user-password-group').style.display = 'block';
   document.getElementById('user-active').checked = true;
   document.getElementById('user-display-order').value = '0';
-  document.getElementById('user-pl-start').value = '';
-  document.getElementById('user-pl-end').value = '';
+  loadPaidLeaveOptions('', '');
   document.getElementById('btn-save-user').dataset.mode = 'add';
   hideError('user-error');
   document.getElementById('modal-user').style.display = 'flex';
@@ -682,8 +706,7 @@ function showEditUserModal(employeeId) {
       document.getElementById('user-active').checked =
         user.active === true || user.active === 'TRUE' || user.active === 'true';
       document.getElementById('user-display-order').value = user.displayOrder || 0;
-      document.getElementById('user-pl-start').value = user.paidLeaveStartTime || '';
-      document.getElementById('user-pl-end').value = user.paidLeaveEndTime || '';
+      loadPaidLeaveOptions(user.paidLeaveStartTime || '', user.paidLeaveEndTime || '');
       document.getElementById('btn-save-user').dataset.mode = 'edit';
       document.getElementById('btn-save-user').dataset.employeeId = employeeId;
       hideError('user-error');
@@ -701,8 +724,16 @@ function saveUser() {
     role: document.getElementById('user-role').value,
     category: document.getElementById('user-category').value,
     displayOrder: parseInt(document.getElementById('user-display-order').value) || 0,
-    paidLeaveStartTime: document.getElementById('user-pl-start').value || '',
-    paidLeaveEndTime: document.getElementById('user-pl-end').value || '',
+    paidLeaveStartTime: (function() {
+      var sel = document.getElementById('user-pl-option');
+      var opt = sel.options[sel.selectedIndex];
+      return opt && opt.dataset.start ? opt.dataset.start : '';
+    })(),
+    paidLeaveEndTime: (function() {
+      var sel = document.getElementById('user-pl-option');
+      var opt = sel.options[sel.selectedIndex];
+      return opt && opt.dataset.end ? opt.dataset.end : '';
+    })(),
     includePaidLeaveInDaysOff: document.getElementById('user-include-pl').checked,
     active: document.getElementById('user-active').checked
   };
