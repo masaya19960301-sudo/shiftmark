@@ -80,7 +80,7 @@ function apiAdminExportExcel(token, yearMonth) {
       );
       if (shift && optionMap[shift.shiftOptionId]) {
         const opt = optionMap[shift.shiftOptionId];
-        row.push(getWorkCode(opt, user));
+        row.push(getWorkCode(opt, user, options));
       } else {
         row.push('');
       }
@@ -101,17 +101,28 @@ function apiAdminExportExcel(token, yearMonth) {
 
 /**
  * 勤務コードを取得
- * Ver1.0では簡易的な変換を行う（勤務コードマスタは後工程）
+ * 有休の場合はユーザーの有休時間帯に対応する勤務コードを使用
  */
-function getWorkCode(option, user) {
+function getWorkCode(option, user, allOptions) {
+  const label = option.label;
+
+  // 有休の場合：ユーザーの有休時間帯から対応する勤務コードを導出
+  if (label === '有休' || label.includes('有休')) {
+    if (user.paidLeaveStartTime && user.paidLeaveEndTime && allOptions) {
+      const matchOpt = allOptions.find(function(o) {
+        return o.startTime === user.paidLeaveStartTime && o.endTime === user.paidLeaveEndTime;
+      });
+      if (matchOpt && matchOpt.code) return String(matchOpt.code);
+    }
+    return '有休';
+  }
+
   // codeフィールドがあればそれを使用
   if (option.code) {
     return String(option.code);
   }
 
-  const label = option.label;
   if (label === '公休' || label.includes('公休')) return '公休';
-  if (label === '有休' || label.includes('有休')) return '有休';
   if (option.startTime && option.endTime) {
     return option.startTime + '-' + option.endTime;
   }

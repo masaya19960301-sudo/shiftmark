@@ -33,6 +33,7 @@ function findUserByEmployeeId(employeeId) {
  */
 function getAllActiveUsers() {
   const sheet = getOrCreateSheet(SHEET_NAMES.USERS);
+  ensureUsersHeaders_(sheet);
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
 
@@ -56,6 +57,7 @@ function getAllActiveUsers() {
  */
 function getAllUsers() {
   const sheet = getOrCreateSheet(SHEET_NAMES.USERS);
+  ensureUsersHeaders_(sheet);
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
 
@@ -354,10 +356,39 @@ function addHolidays(dateList) {
 // ========== ShiftOptions ==========
 
 /**
+ * ShiftOptionsシートのヘッダーに不足カラムがあれば追加
+ */
+function ensureShiftOptionsHeaders_(sheet) {
+  if (sheet.getLastRow() === 0) return;
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  if (headers.indexOf('code') === -1) {
+    const nextCol = headers.length + 1;
+    sheet.getRange(1, nextCol).setValue('code');
+  }
+}
+
+/**
+ * Usersシートのヘッダーに不足カラムがあれば追加
+ */
+function ensureUsersHeaders_(sheet) {
+  if (sheet.getLastRow() === 0) return;
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const needed = ['displayOrder', 'paidLeaveStartTime', 'paidLeaveEndTime'];
+  needed.forEach(function(col) {
+    if (headers.indexOf(col) === -1) {
+      const nextCol = sheet.getLastColumn() + 1;
+      sheet.getRange(1, nextCol).setValue(col);
+      headers.push(col);
+    }
+  });
+}
+
+/**
  * 勤務時間候補取得（アクティブのみ）
  */
 function getActiveShiftOptions() {
   const sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_OPTIONS);
+  ensureShiftOptionsHeaders_(sheet);
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
 
@@ -382,6 +413,7 @@ function getActiveShiftOptions() {
  */
 function getAllShiftOptions() {
   const sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_OPTIONS);
+  ensureShiftOptionsHeaders_(sheet);
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
 

@@ -651,7 +651,6 @@ function showAddUserModal() {
   document.getElementById('user-name').value = '';
   document.getElementById('user-role').value = 'user';
   document.getElementById('user-category').value = '社員';
-  document.getElementById('user-paid-leave-hours').value = '8';
   document.getElementById('user-include-pl').checked = false;
   document.getElementById('user-password').value = 'password';
   document.getElementById('user-password-group').style.display = 'block';
@@ -677,7 +676,6 @@ function showEditUserModal(employeeId) {
       document.getElementById('user-name').value = user.name;
       document.getElementById('user-role').value = user.role;
       document.getElementById('user-category').value = user.category || '社員';
-      document.getElementById('user-paid-leave-hours').value = user.paidLeaveHoursPerDay || 8;
       document.getElementById('user-include-pl').checked =
         user.includePaidLeaveInDaysOff === true || user.includePaidLeaveInDaysOff === 'TRUE';
       document.getElementById('user-password-group').style.display = 'none';
@@ -1415,12 +1413,21 @@ function loadAnnouncements() {
     .withSuccessHandler(function(result) {
       if (!result.success) return;
       var html = '<table class="admin-table"><thead><tr><th>年月度</th><th>内容</th><th>操作</th></tr></thead><tbody>';
-      result.announcements.forEach(function(a) {
+      result.announcements.forEach(function(a, idx) {
         html += '<tr><td>' + a.yearMonth + '</td><td>' + (a.message || '').substring(0, 50) + '</td>';
-        html += '<td><button class="btn btn-sm btn-primary" onclick="editAnnouncement(\'' + a.yearMonth + '\', ' + JSON.stringify(a.message || '').replace(/'/g, "\\'") + ')">編集</button></td></tr>';
+        html += '<td><button class="btn btn-sm btn-primary" data-anno-idx="' + idx + '">編集</button></td></tr>';
       });
+      // 編集ボタンのイベント設定用にデータを保存
+      window._announcementsData = result.announcements;
       html += '</tbody></table>';
       document.getElementById('announcements-table-container').innerHTML = html;
+      // 編集ボタンにイベントリスナーを設定
+      document.querySelectorAll('[data-anno-idx]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var a = window._announcementsData[parseInt(btn.dataset.annoIdx)];
+          editAnnouncement(a.yearMonth, a.message || '');
+        });
+      });
     })
     .withFailureHandler(handleError)
     .apiAdminGetAnnouncements(currentToken);
