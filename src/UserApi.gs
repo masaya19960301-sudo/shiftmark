@@ -198,10 +198,13 @@ function apiCheckDaysOff(token, yearMonth) {
   const required = reqHolidays ? reqHolidays.requiredDaysOff : null;
   let warning = null;
 
-  // フレックスの場合は公休日数チェック不要
+  // フレックスの場合は公休日数チェック不要（表示もしない）
   const isFlexUser = user && user.category === 'フレックス';
+  if (isFlexUser) {
+    return { success: true, daysOffCount: 0, paidLeaveCount: 0, totalDaysOff: 0, required: null, warning: null, includePaidLeave: false };
+  }
 
-  if (required !== null && !isFlexUser) {
+  if (required !== null) {
     const diff = totalDaysOff - required;
     if (diff < 0) {
       warning = '公休が' + Math.abs(diff) + '日不足しています（必要: ' + required + '日, 現在: ' + totalDaysOff + '日）';
