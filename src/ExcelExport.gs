@@ -146,7 +146,7 @@ function generateDateList(startDate, endDate) {
 }
 
 /**
- * Excel出力用のスプレッドシート作成
+ * Excel出力用の.xlsxファイル作成（勤務コードシートのみ）
  */
 function apiAdminCreateExcelFile(token, yearMonth) {
   const auth = requireAdmin(token);
@@ -155,39 +155,46 @@ function apiAdminCreateExcelFile(token, yearMonth) {
   const exportData = apiAdminExportExcel(token, yearMonth);
   if (!exportData.success) return exportData;
 
-  // 新しいスプレッドシートを作成
-  const fileName = 'シフト表_' + yearMonth + '_' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd_HHmmss');
-  const ss = SpreadsheetApp.create(fileName);
+  // 一時スプレッドシートを作成
+  const tmpName = '_tmp_shift_export_' + Date.now();
+  const ss = SpreadsheetApp.create(tmpName);
 
-  // 時間表記シート
-  const timeSheet = ss.getActiveSheet();
-  timeSheet.setName('時間表記');
-  if (exportData.timeData.length > 0) {
-    const numRows = exportData.timeData.length;
-    const numCols = exportData.timeData[0].length;
-    timeSheet.getRange(1, 1, numRows, numCols).setValues(exportData.timeData);
+  try {
+    // 勤務コードシートにデータを書き込み
+    const sheet = ss.getActiveSheet();
+    sheet.setName('勤務コード');
+    if (exportData.codeData.length > 0) {
+      const numRows = exportData.codeData.length;
+      const numCols = exportData.codeData[0].length;
+      sheet.getRange(1, 1, numRows, numCols).setValues(exportData.codeData);
+      formatExportSheet(sheet, exportData.dates, exportData.holidays, numRows, numCols);
+    }
+    SpreadsheetApp.flush();
 
-    // 書式設定
-    formatExportSheet(timeSheet, exportData.dates, exportData.holidays, numRows, numCols);
+    // .xlsx形式でエクスポート
+    const ssId = ss.getId();
+    const url = 'https://docs.google.com/spreadsheets/d/' + ssId + '/export?format=xlsx';
+    const response = UrlFetchApp.fetch(url, {
+      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }
+    });
+    const blob = response.getBlob();
+    const fileName = 'シフト表_' + yearMonth + '_' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd_HHmmss') + '.xlsx';
+    blob.setName(fileName);
+
+    // .xlsxファイルをDriveに保存
+    const file = DriveApp.createFile(blob);
+    const fileUrl = file.getUrl();
+
+    return {
+      success: true,
+      message: 'Excelファイルを作成しました（' + exportData.source + 'シフトベース）',
+      fileUrl: fileUrl,
+      fileName: fileName
+    };
+  } finally {
+    // 一時スプレッドシートを削除
+    DriveApp.getFileById(ss.getId()).setTrashed(true);
   }
-
-  // 勤務コード/公休シート
-  const codeSheet = ss.insertSheet('勤務コード');
-  if (exportData.codeData.length > 0) {
-    const numRows = exportData.codeData.length;
-    const numCols = exportData.codeData[0].length;
-    codeSheet.getRange(1, 1, numRows, numCols).setValues(exportData.codeData);
-
-    formatExportSheet(codeSheet, exportData.dates, exportData.holidays, numRows, numCols);
-  }
-
-  const fileUrl = ss.getUrl();
-  return {
-    success: true,
-    message: 'Excelファイルを作成しました（' + exportData.source + 'シフトベース）',
-    fileUrl: fileUrl,
-    fileName: fileName
-  };
 }
 
 /**
@@ -208,10 +215,11 @@ function formatExportSheet(sheet, dates, holidays, numRows, numCols) {
     '#000000', SpreadsheetApp.BorderStyle.SOLID
   );
 
-  // 日曜・祝日の列を色分け
+  // 日曜・祝日の列を色分け（人員+社員番号の後に日付列が続く）
+  const dateStartCol = numCols - dates.length + 1;
   dates.forEach((date, idx) => {
     const dt = new Date(date);
-    const col = idx + 2; // 1列目は名前
+    const col = dateStartCol + idx;
 
     if (dt.getDay() === 0 || holidays.includes(date)) {
       // 日曜・祝日: ピンク
@@ -224,7 +232,8 @@ function formatExportSheet(sheet, dates, holidays, numRows, numCols) {
 
   // 列幅調整
   sheet.setColumnWidth(1, 100);
-  for (let c = 2; c <= numCols; c++) {
+  sheet.setColumnWidth(2, 80);
+  for (let c = dateStartCol; c <= numCols; c++) {
     sheet.setColumnWidth(c, 70);
   }
 
