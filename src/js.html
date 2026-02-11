@@ -1113,10 +1113,42 @@ function loadFinalShift() {
     .withSuccessHandler(function(data) {
       if (!data.success) return;
       shiftOptions = data.options;
+
+      // 締切ボタンの状態更新
+      var lockBtn = document.getElementById('btn-final-lock');
+      if (data.locked) {
+        lockBtn.textContent = '締切解除';
+        lockBtn.className = 'btn btn-sm btn-success';
+      } else {
+        lockBtn.textContent = '希望締切';
+        lockBtn.className = 'btn btn-sm btn-danger';
+      }
+      lockBtn.dataset.locked = data.locked ? 'true' : 'false';
+
       renderFinalShiftTable(data);
     })
     .withFailureHandler(handleError)
     .apiAdminGetShiftFinal(currentToken, yearMonth);
+}
+
+function toggleLockFromFinal() {
+  var yearMonth = document.getElementById('final-month-select').value;
+  if (!yearMonth) return;
+  var btn = document.getElementById('btn-final-lock');
+  var isLocked = btn.dataset.locked === 'true';
+  var newLocked = !isLocked;
+  var action = newLocked ? '締切' : '締切解除';
+  if (!confirm(yearMonth + ' の希望を' + action + 'しますか？')) return;
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      showToast(result.message, result.success ? 'success' : 'error');
+      if (result.success) loadFinalShift();
+    })
+    .withFailureHandler(handleError)
+    .apiAdminSetLock(currentToken, yearMonth, newLocked);
 }
 
 function renderFinalShiftTable(data) {
@@ -1127,6 +1159,21 @@ function renderFinalShiftTable(data) {
   var shiftMap = {};
   data.shifts.forEach(function(s) {
     shiftMap[s.employeeId + '_' + s.date] = s.shiftOptionId;
+  });
+
+  // ユーザーごとの公休日数を集計
+  var daysOffMap = {};
+  data.users.forEach(function(user) {
+    var count = 0;
+    dates.forEach(function(d) {
+      var optId = shiftMap[user.employeeId + '_' + d] || '';
+      if (optId && optionMap[optId]) {
+        var lbl = optionMap[optId].label;
+        if (lbl === '公休' || lbl.includes('公休')) count++;
+        if (user.includePaidLeaveInDaysOff && (lbl === '有休' || lbl.includes('有休'))) count++;
+      }
+    });
+    daysOffMap[user.employeeId] = count;
   });
 
   var html = '<table><thead><tr><th class="sticky-col">氏名</th>';
@@ -1143,8 +1190,10 @@ function renderFinalShiftTable(data) {
   html += '</tr></thead><tbody>';
 
   data.users.forEach(function(user) {
+    var insufficient = data.requiredDaysOff !== null && daysOffMap[user.employeeId] < data.requiredDaysOff;
     html += '<tr>';
-    html += '<td class="sticky-col">' + user.name + '</td>';
+    html += '<td class="sticky-col' + (insufficient ? ' days-off-warning' : '') + '">' +
+            user.name + (insufficient ? ' (' + daysOffMap[user.employeeId] + '/' + data.requiredDaysOff + ')' : '') + '</td>';
 
     dates.forEach(function(d) {
       var dt = new Date(d);
@@ -1420,10 +1469,25 @@ function exportExcel() {
     .withSuccessHandler(function(result) {
       hideLoading();
       if (result.success) {
+        // base64からBlobを作成してダウンロード
+        var byteChars = atob(result.base64);
+        var byteNumbers = new Array(byteChars.length);
+        for (var i = 0; i < byteChars.length; i++) {
+          byteNumbers[i] = byteChars.charCodeAt(i);
+        }
+        var byteArray = new Uint8Array(byteNumbers);
+        var blob = new Blob([byteArray], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = result.fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
         document.getElementById('export-result').innerHTML =
-          '<div class="notice notice-info">' + result.message + '<br>' +
-          '<a href="' + result.fileUrl + '" target="_blank" style="font-weight:bold;">' +
-          result.fileName + ' を開く</a></div>';
+          '<div class="notice notice-success">' + result.message + '</div>';
       } else {
         document.getElementById('export-result').innerHTML =
           '<div class="notice notice-danger">' + result.message + '</div>';

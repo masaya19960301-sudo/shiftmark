@@ -371,6 +371,7 @@
           <select id="final-month-select" onchange="loadFinalShift()"></select>
           <button class="btn btn-sm" onclick="changeMonth('final', 1)">次月 &gt;</button>
           <button class="btn btn-primary btn-sm" onclick="copyRequestsToFinal()" style="margin-left:10px;">希望から一括コピー</button>
+          <button id="btn-final-lock" class="btn btn-sm btn-danger" onclick="toggleLockFromFinal()" style="margin-left:5px;">希望締切</button>
         </div>
       </div>
       <div id="final-shift-table-container" class="table-scroll">

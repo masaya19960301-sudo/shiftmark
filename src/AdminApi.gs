@@ -230,6 +230,8 @@ function apiAdminGetShiftFinal(token, yearMonth) {
   const options = getActiveShiftOptions();
   const dateRange = getDateRangeForYearMonth(yearMonth);
   const holidays = getHolidays();
+  const lockStatus = getLockStatus(yearMonth);
+  const reqHolidays = getRequiredHolidays(yearMonth);
 
   return {
     success: true,
@@ -237,7 +239,9 @@ function apiAdminGetShiftFinal(token, yearMonth) {
     users: users,
     options: options,
     dateRange: dateRange,
-    holidays: holidays
+    holidays: holidays,
+    locked: lockStatus.locked,
+    requiredDaysOff: reqHolidays ? reqHolidays.requiredDaysOff : null
   };
 }
 

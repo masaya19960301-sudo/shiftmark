@@ -147,6 +147,7 @@ function generateDateList(startDate, endDate) {
 
 /**
  * Excel出力用の.xlsxファイル作成（勤務コードシートのみ）
+ * base64でクライアントに返してブラウザダウンロードさせる
  */
 function apiAdminCreateExcelFile(token, yearMonth) {
   const auth = requireAdmin(token);
@@ -167,6 +168,10 @@ function apiAdminCreateExcelFile(token, yearMonth) {
       const numRows = exportData.codeData.length;
       const numCols = exportData.codeData[0].length;
       sheet.getRange(1, 1, numRows, numCols).setValues(exportData.codeData);
+
+      // 社員番号列をテキスト形式に設定
+      sheet.getRange(2, 2, numRows - 1, 1).setNumberFormat('@');
+
       formatExportSheet(sheet, exportData.dates, exportData.holidays, numRows, numCols);
     }
     SpreadsheetApp.flush();
@@ -179,17 +184,15 @@ function apiAdminCreateExcelFile(token, yearMonth) {
     });
     const blob = response.getBlob();
     const fileName = 'シフト表_' + yearMonth + '_' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd_HHmmss') + '.xlsx';
-    blob.setName(fileName);
 
-    // .xlsxファイルをDriveに保存
-    const file = DriveApp.createFile(blob);
-    const fileUrl = file.getUrl();
+    // base64エンコードしてクライアントに返す
+    const base64 = Utilities.base64Encode(blob.getBytes());
 
     return {
       success: true,
       message: 'Excelファイルを作成しました（' + exportData.source + 'シフトベース）',
-      fileUrl: fileUrl,
-      fileName: fileName
+      fileName: fileName,
+      base64: base64
     };
   } finally {
     // 一時スプレッドシートを削除
