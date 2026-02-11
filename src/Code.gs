@@ -16,7 +16,8 @@ const SHEET_NAMES = {
   SHIFT_REQUESTS: 'ShiftRequests',
   SHIFT_FINAL: 'ShiftFinal',
   LOCKS: 'Locks',
-  USER_DEFAULTS: 'UserDefaults'
+  USER_DEFAULTS: 'UserDefaults',
+  ANNOUNCEMENTS: 'Announcements'
 };
 
 /**
@@ -68,12 +69,13 @@ function setupSpreadsheet() {
   if (usersSheet.getLastRow() === 0) {
     usersSheet.appendRow([
       'employeeId', 'name', 'role', 'category', 'password',
-      'paidLeaveHoursPerDay', 'includePaidLeaveInDaysOff', 'active'
+      'paidLeaveHoursPerDay', 'includePaidLeaveInDaysOff', 'active',
+      'displayOrder', 'paidLeaveStartTime', 'paidLeaveEndTime'
     ]);
     // デフォルト管理者を作成（社員番号: admin, パスワード: admin）
     const defaultHash = hashPassword('admin');
     usersSheet.appendRow([
-      'admin', '管理者', 'admin', '社員', defaultHash, 8, false, true
+      'admin', '管理者', 'admin', '社員', defaultHash, 8, false, true, 0, '', ''
     ]);
   }
 
@@ -100,14 +102,14 @@ function setupSpreadsheet() {
   // ShiftOptions シート
   const optSheet = getOrCreateSheet(SHEET_NAMES.SHIFT_OPTIONS);
   if (optSheet.getLastRow() === 0) {
-    optSheet.appendRow(['optionId', 'label', 'startTime', 'endTime', 'sortOrder', 'active']);
+    optSheet.appendRow(['optionId', 'label', 'startTime', 'endTime', 'sortOrder', 'active', 'code']);
     // デフォルト選択肢
     const defaults = [
-      ['opt1', '9:00-18:00', '09:00', '18:00', 1, true],
-      ['opt2', '8:00-17:00', '08:00', '17:00', 2, true],
-      ['opt3', '9:00-14:00', '09:00', '14:00', 3, true],
-      ['opt4', '公休', '', '', 10, true],
-      ['opt5', '有休', '', '', 11, true]
+      ['opt1', '9:00-18:00', '09:00', '18:00', 1, true, '441Z'],
+      ['opt2', '8:00-17:00', '08:00', '17:00', 2, true, '441X'],
+      ['opt3', '9:00-14:00', '09:00', '14:00', 3, true, '441Z5'],
+      ['opt4', '公休', '', '', 10, true, '公休'],
+      ['opt5', '有休', '', '', 11, true, '有休']
     ];
     defaults.forEach(row => optSheet.appendRow(row));
     // 時刻列をテキスト形式に設定
@@ -139,6 +141,12 @@ function setupSpreadsheet() {
   const defaultsSheet = getOrCreateSheet(SHEET_NAMES.USER_DEFAULTS);
   if (defaultsSheet.getLastRow() === 0) {
     defaultsSheet.appendRow(['employeeId', 'dayOfWeek', 'shiftOptionId']);
+  }
+
+  // Announcements シート
+  const annoSheet = getOrCreateSheet(SHEET_NAMES.ANNOUNCEMENTS);
+  if (annoSheet.getLastRow() === 0) {
+    annoSheet.appendRow(['yearMonth', 'message']);
   }
 
   return { success: true, message: '初期セットアップが完了しました' };

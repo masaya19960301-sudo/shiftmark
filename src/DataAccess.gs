@@ -47,6 +47,7 @@ function getAllActiveUsers() {
       users.push(user);
     }
   }
+  users.sort((a, b) => ((a.displayOrder || 0) - (b.displayOrder || 0)));
   return users;
 }
 
@@ -91,11 +92,16 @@ function addUser(userData) {
     passwordHash,
     userData.paidLeaveHoursPerDay || 8,
     userData.includePaidLeaveInDaysOff || false,
-    true
+    true,
+    userData.displayOrder || 0,
+    userData.paidLeaveStartTime || '',
+    userData.paidLeaveEndTime || ''
   ]);
   // 社員番号のセルをテキスト形式に設定し、値を再セット（先頭ゼロ保持）
   const lastRow = sheet.getLastRow();
   sheet.getRange(lastRow, 1).setNumberFormat('@').setValue(empId);
+  sheet.getRange(lastRow, 10).setNumberFormat('@');
+  sheet.getRange(lastRow, 11).setNumberFormat('@');
 
   return { success: true, message: 'ユーザーを登録しました' };
 }
@@ -132,6 +138,9 @@ function updateUser(employeeId, userData) {
   sheet.getRange(row, 6).setValue(userData.paidLeaveHoursPerDay);
   sheet.getRange(row, 7).setValue(userData.includePaidLeaveInDaysOff);
   sheet.getRange(row, 8).setValue(userData.active !== false);
+  sheet.getRange(row, 9).setValue(userData.displayOrder || 0);
+  sheet.getRange(row, 10).setNumberFormat('@').setValue(userData.paidLeaveStartTime || '');
+  sheet.getRange(row, 11).setNumberFormat('@').setValue(userData.paidLeaveEndTime || '');
 
   return { success: true, message: 'ユーザー情報を更新しました' };
 }
@@ -408,6 +417,7 @@ function saveShiftOption(optionData) {
     sheet.getRange(row, 4).setNumberFormat('@').setValue(et);
     sheet.getRange(row, 5).setValue(optionData.sortOrder || 0);
     sheet.getRange(row, 6).setValue(optionData.active !== false);
+    sheet.getRange(row, 7).setValue(optionData.code || '');
   } else {
     sheet.appendRow([
       optionData.optionId || Utilities.getUuid(),
@@ -415,7 +425,8 @@ function saveShiftOption(optionData) {
       st,
       et,
       optionData.sortOrder || 0,
-      optionData.active !== false
+      optionData.active !== false,
+      optionData.code || ''
     ]);
     const lastRow = sheet.getLastRow();
     sheet.getRange(lastRow, 3).setNumberFormat('@');
@@ -499,23 +510,12 @@ function generateShiftFromDefaults(yearMonth, employeeId) {
 
   const dateRange = getDateRangeForYearMonth(yearMonth);
   const dates = generateDateList(dateRange.startDate, dateRange.endDate);
-  const holidays = getHolidays();
-
-  // 祝日用のデフォルト（日曜と同じ扱い）
-  const holidayOpt = defaults['0'] || '';
 
   let count = 0;
   dates.forEach(dateStr => {
     const dt = new Date(dateStr);
-    const dow = dt.getDay(); // 0=日, 6=土
-    let optId;
-
-    if (holidays.includes(dateStr)) {
-      // 祝日は日曜のデフォルトを使用
-      optId = holidayOpt;
-    } else {
-      optId = defaults[String(dow)] || '';
-    }
+    const dow = dt.getDay();
+    const optId = defaults[String(dow)] || '';
 
     if (optId) {
       saveShiftRequest(yearMonth, employeeId, dateStr, optId);
@@ -531,30 +531,19 @@ function generateShiftFromDefaults(yearMonth, employeeId) {
  */
 function generateAllRequestsFromDefaults(yearMonth) {
   const users = getAllActiveUsers();
-  const allDefaults = getAllUserDefaults();
   const dateRange = getDateRangeForYearMonth(yearMonth);
   const dates = generateDateList(dateRange.startDate, dateRange.endDate);
-  const holidays = getHolidays();
 
   let totalCount = 0;
   users.forEach(user => {
     const empId = String(user.employeeId);
-    const defaults = allDefaults[empId];
-    if (!defaults || Object.keys(defaults).length === 0) return;
-
-    const holidayOpt = defaults['0'] || '';
+    const defaults = getUserDefaults(empId);
+    if (Object.keys(defaults).length === 0) return;
 
     dates.forEach(dateStr => {
       const dt = new Date(dateStr);
       const dow = dt.getDay();
-      let optId;
-
-      if (holidays.includes(dateStr)) {
-        optId = holidayOpt;
-      } else {
-        optId = defaults[String(dow)] || '';
-      }
-
+      const optId = defaults[String(dow)] || '';
       if (optId) {
         saveShiftRequest(yearMonth, empId, dateStr, optId);
         totalCount++;
@@ -576,7 +565,6 @@ function checkRequestsVsDefaults(yearMonth) {
   }
 
   const allDefaults = getAllUserDefaults();
-  const holidays = getHolidays();
 
   let modifiedCount = 0;
   allRequests.forEach(req => {
@@ -585,13 +573,7 @@ function checkRequestsVsDefaults(yearMonth) {
 
     const dt = new Date(req.date);
     const dow = dt.getDay();
-    let expectedOptId;
-
-    if (holidays.includes(req.date)) {
-      expectedOptId = defaults['0'] || '';
-    } else {
-      expectedOptId = defaults[String(dow)] || '';
-    }
+    const expectedOptId = defaults[String(dow)] || '';
 
     if (req.shiftOptionId !== expectedOptId) {
       modifiedCount++;
@@ -609,7 +591,6 @@ function generateFinalFromDefaults(yearMonth) {
   const allDefaults = getAllUserDefaults();
   const dateRange = getDateRangeForYearMonth(yearMonth);
   const dates = generateDateList(dateRange.startDate, dateRange.endDate);
-  const holidays = getHolidays();
 
   let totalCount = 0;
   users.forEach(user => {
@@ -617,18 +598,10 @@ function generateFinalFromDefaults(yearMonth) {
     const defaults = allDefaults[empId];
     if (!defaults || Object.keys(defaults).length === 0) return;
 
-    const holidayOpt = defaults['0'] || '';
-
     dates.forEach(dateStr => {
       const dt = new Date(dateStr);
       const dow = dt.getDay();
-      let optId;
-
-      if (holidays.includes(dateStr)) {
-        optId = holidayOpt;
-      } else {
-        optId = defaults[String(dow)] || '';
-      }
+      const optId = defaults[String(dow)] || '';
 
       if (optId) {
         saveShiftFinal(yearMonth, empId, dateStr, optId);
@@ -837,4 +810,43 @@ function setLock(yearMonth, locked, adminEmployeeId) {
   }
   SpreadsheetApp.flush();
   return { success: true, locked: locked };
+}
+
+// ========== Announcements ==========
+
+function getAnnouncement(yearMonth) {
+  const sheet = getOrCreateSheet(SHEET_NAMES.ANNOUNCEMENTS);
+  const data = sheet.getDataRange().getValues();
+  const target = normalizeYearMonth(yearMonth);
+  for (let i = 1; i < data.length; i++) {
+    if (normalizeYearMonth(data[i][0]) === target) {
+      return { yearMonth: target, message: data[i][1] || '', _row: i + 1 };
+    }
+  }
+  return null;
+}
+
+function getAllAnnouncements() {
+  const sheet = getOrCreateSheet(SHEET_NAMES.ANNOUNCEMENTS);
+  const data = sheet.getDataRange().getValues();
+  const result = [];
+  for (let i = 1; i < data.length; i++) {
+    result.push({ yearMonth: normalizeYearMonth(data[i][0]), message: data[i][1] || '' });
+  }
+  return result;
+}
+
+function saveAnnouncement(yearMonth, message) {
+  const sheet = getOrCreateSheet(SHEET_NAMES.ANNOUNCEMENTS);
+  const ymStr = String(yearMonth);
+  const existing = getAnnouncement(ymStr);
+  if (existing) {
+    sheet.getRange(existing._row, 2).setValue(message);
+  } else {
+    sheet.appendRow([ymStr, message]);
+    const lastRow = sheet.getLastRow();
+    sheet.getRange(lastRow, 1).setNumberFormat('@');
+  }
+  SpreadsheetApp.flush();
+  return { success: true };
 }

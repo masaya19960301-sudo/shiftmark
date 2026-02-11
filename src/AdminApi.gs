@@ -312,12 +312,17 @@ function apiAdminSaveUserDefaults(token, employeeId, defaults) {
   return { success: true, message: 'デフォルトシフトを保存しました' };
 }
 
-/**
- * デフォルトから確定シフトを一括自動生成（全ユーザー）
- */
-function apiAdminGenerateFinalFromDefaults(token, yearMonth) {
+// ========== 周知事項 ==========
+
+function apiAdminGetAnnouncements(token) {
   const auth = requireAdmin(token);
   if (!auth.valid) return { success: false, message: auth.message };
+  return { success: true, announcements: getAllAnnouncements() };
+}
 
-  return generateFinalFromDefaults(yearMonth);
+function apiAdminSaveAnnouncement(token, yearMonth, message) {
+  const auth = requireAdmin(token);
+  if (!auth.valid) return { success: false, message: auth.message };
+  saveAnnouncement(yearMonth, message);
+  return { success: true, message: '周知事項を保存しました' };
 }

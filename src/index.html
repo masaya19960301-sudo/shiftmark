@@ -30,6 +30,7 @@
         <button class="nav-btn" data-page="admin-holidays" onclick="navigateTo('admin-holidays')">祝日登録</button>
         <button class="nav-btn" data-page="admin-options" onclick="navigateTo('admin-options')">勤務時間候補</button>
         <button class="nav-btn" data-page="admin-defaults" onclick="navigateTo('admin-defaults')">デフォルト設定</button>
+        <button class="nav-btn" data-page="admin-announcements" onclick="navigateTo('admin-announcements')">周知事項</button>
         <button class="nav-btn" data-page="admin-locks" onclick="navigateTo('admin-locks')">締切管理</button>
         <button class="nav-btn" data-page="admin-final" onclick="navigateTo('admin-final')">確定シフト</button>
         <button class="nav-btn" data-page="admin-export" onclick="navigateTo('admin-export')">Excel出力</button>
@@ -95,6 +96,7 @@
       <div id="input-defaults-notice" class="notice notice-warning" style="display:none;">
         管理者がデフォルトシフトを反映するまで入力できません。
       </div>
+      <div id="input-announcement" class="announcement-box" style="display:none;"></div>
       <div id="input-lock-notice" class="notice notice-warning" style="display:none;">
         この月度は締切済みです。閲覧のみ可能です。
       </div>
@@ -161,8 +163,12 @@
           </select>
         </div>
         <div class="form-group">
-          <label>有休1日の時間数</label>
-          <input type="number" id="user-paid-leave-hours" value="8" min="1" max="24">
+          <label>有休時の勤務開始時刻</label>
+          <input type="time" id="user-pl-start">
+        </div>
+        <div class="form-group">
+          <label>有休時の勤務終了時刻</label>
+          <input type="time" id="user-pl-end">
         </div>
         <div class="form-group">
           <label>
@@ -177,6 +183,10 @@
           <label>
             <input type="checkbox" id="user-active" checked> 有効
           </label>
+        </div>
+        <div class="form-group">
+          <label>表示順（小さい順）</label>
+          <input type="number" id="user-display-order" value="0" min="0">
         </div>
         <div id="user-error" class="error-msg" style="display:none;"></div>
         <button class="btn btn-primary" id="btn-save-user" onclick="saveUser()">登録</button>
@@ -300,6 +310,10 @@
         <div class="form-group">
           <label><input type="checkbox" id="option-active" checked> 有効</label>
         </div>
+        <div class="form-group">
+          <label>勤務コード（Excel出力用）</label>
+          <input type="text" id="option-code" placeholder="例: A, 441Z">
+        </div>
         <input type="hidden" id="option-id">
         <button class="btn btn-primary" onclick="saveOption()">保存</button>
       </div>
@@ -312,6 +326,30 @@
       </div>
       <p class="hint">ユーザーごとの曜日別デフォルトシフトを設定します。祝日は日曜と同じ扱いになります。</p>
       <div id="defaults-table-container">
+        <div class="loading">読み込み中...</div>
+      </div>
+    </div>
+
+    <!-- 管理者：周知事項 -->
+    <div id="page-admin-announcements" class="page" style="display:none;">
+      <div class="page-header">
+        <h2>周知事項管理</h2>
+      </div>
+      <div class="card">
+        <h3>月度別周知事項</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>年月度</label>
+            <input type="month" id="anno-ym">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>周知内容</label>
+          <textarea id="anno-message" rows="4" placeholder="希望入力画面に表示される周知事項"></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="saveAnnouncement()">保存</button>
+      </div>
+      <div id="announcements-table-container" style="margin-top:20px;">
         <div class="loading">読み込み中...</div>
       </div>
     </div>
@@ -335,7 +373,6 @@
           <select id="final-month-select" onchange="loadFinalShift()"></select>
           <button class="btn btn-sm" onclick="changeMonth('final', 1)">次月 &gt;</button>
           <button class="btn btn-primary btn-sm" onclick="copyRequestsToFinal()" style="margin-left:10px;">希望から一括コピー</button>
-          <button class="btn btn-sm btn-success" onclick="generateFinalFromDefaults()" style="margin-left:5px;">デフォルトから生成</button>
         </div>
       </div>
       <div id="final-shift-table-container" class="table-scroll">

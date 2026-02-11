@@ -64,7 +64,7 @@ function apiAdminExportExcel(token, yearMonth) {
 
   // ========== 勤務コード/公休シート用データ ==========
   const codeData = [];
-  const codeHeader = ['人員'];
+  const codeHeader = ['人員', '社員番号'];
   dates.forEach(d => {
     const dt = new Date(d);
     const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
@@ -73,7 +73,7 @@ function apiAdminExportExcel(token, yearMonth) {
   codeData.push(codeHeader);
 
   users.forEach(user => {
-    const row = [user.name];
+    const row = [user.name, String(user.employeeId)];
     dates.forEach(date => {
       const shift = shifts.find(s =>
         String(s.employeeId) === String(user.employeeId) && s.date === date
@@ -104,45 +104,18 @@ function apiAdminExportExcel(token, yearMonth) {
  * Ver1.0では簡易的な変換を行う（勤務コードマスタは後工程）
  */
 function getWorkCode(option, user) {
+  // codeフィールドがあればそれを使用
+  if (option.code) {
+    return String(option.code);
+  }
+
   const label = option.label;
-
-  // 公休
-  if (label === '公休' || label.includes('公休')) {
-    return '公休';
-  }
-
-  // 有休の場合は「勤務している扱い」のコードを出力
-  if (label === '有休' || label.includes('有休')) {
-    // 有休は勤務コード相当として出力
-    if (option.startTime && option.endTime) {
-      return getTimeBasedCode(option.startTime, option.endTime);
-    }
-    // 時間指定なしの有休は標準勤務として扱う
-    return '441Z';
-  }
-
-  // 通常勤務
+  if (label === '公休' || label.includes('公休')) return '公休';
+  if (label === '有休' || label.includes('有休')) return '有休';
   if (option.startTime && option.endTime) {
-    return getTimeBasedCode(option.startTime, option.endTime);
+    return option.startTime + '-' + option.endTime;
   }
-
   return label;
-}
-
-/**
- * 時間帯から勤務コードを生成
- * Ver1.0: 簡易マッピング（勤務コードマスタ導入後に正式対応）
- */
-function getTimeBasedCode(startTime, endTime) {
-  const key = startTime + '-' + endTime;
-  const codeMap = {
-    '09:00-18:00': '441Z',
-    '08:00-17:00': '441X',
-    '09:00-14:00': '441Z5',
-    '10:00-19:00': '441Z',
-    '08:30-17:30': '441X'
-  };
-  return codeMap[key] || '441Z';
 }
 
 /**

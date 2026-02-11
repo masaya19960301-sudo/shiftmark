@@ -176,6 +176,9 @@ function loadPageData(page) {
     case 'admin-defaults':
       loadUserDefaults();
       break;
+    case 'admin-announcements':
+      loadAnnouncements();
+      break;
     case 'admin-locks':
       loadLocks();
       break;
@@ -201,11 +204,21 @@ function initMonthSelector(prefix) {
         opt.textContent = m.label + (m.locked ? ' [締切済]' : '');
         select.appendChild(opt);
       });
-      // 現在月を選択
-      var now = new Date();
-      var currentYM = now.getFullYear() + '-' + ('0' + (now.getMonth() + 1)).slice(-2);
-      if (select.querySelector('option[value="' + currentYM + '"]')) {
-        select.value = currentYM;
+      // デフォルト選択: input/final→最新締切後の月度, view→最新締切済み月度
+      var defaultYM = null;
+      if (prefix === 'view') {
+        // 閲覧: 最新の締切済み月度
+        for (var mi = result.months.length - 1; mi >= 0; mi--) {
+          if (result.months[mi].locked) { defaultYM = result.months[mi].yearMonth; break; }
+        }
+      } else {
+        // 入力/確定: 締切済みの次の月度
+        for (var mi = 0; mi < result.months.length; mi++) {
+          if (!result.months[mi].locked) { defaultYM = result.months[mi].yearMonth; break; }
+        }
+      }
+      if (defaultYM && select.querySelector('option[value="' + defaultYM + '"]')) {
+        select.value = defaultYM;
       }
       // ページデータ読み込み
       switch (prefix) {
@@ -260,6 +273,15 @@ function loadShiftInput() {
         defaultsNotice.style.display = 'none';
       }
 
+      // 周知事項表示
+      var annoEl = document.getElementById('input-announcement');
+      if (data.announcement) {
+        annoEl.textContent = data.announcement;
+        annoEl.style.display = 'block';
+      } else {
+        annoEl.style.display = 'none';
+      }
+
       renderShiftInputTable(data);
       updateDaysOffInfo(yearMonth);
     })
@@ -293,6 +315,11 @@ function renderShiftInputTable(data) {
   data.myRequests.concat(data.otherRequests).forEach(function(r) {
     requestMap[r.employeeId + '_' + r.date] = r.shiftOptionId;
   });
+
+  // デフォルトとの差分マップ構築
+  var allDefaults = data.allDefaults || {};
+  var holidaySet = {};
+  data.holidays.forEach(function(h) { holidaySet[h] = true; });
 
   var html = '<table><thead><tr><th class="sticky-col">氏名</th>';
   dates.forEach(function(d) {
@@ -339,13 +366,23 @@ function renderShiftInputTable(data) {
         }
       }
 
+      // デフォルトとの差分チェック
+      var diffClass = '';
+      if (isMe && allDefaults[myId]) {
+        var myDef = allDefaults[myId];
+        var expectedOpt = myDef[String(dt.getDay())] || '';
+        if (optId !== expectedOpt) {
+          diffClass = ' diff-from-default';
+        }
+      }
+
       if (isMe && editable) {
-        html += '<td class="' + cellClass + ' ' + dayClass + (isMe ? ' my-row' : '') +
+        html += '<td class="' + cellClass + diffClass + ' ' + dayClass + (isMe ? ' my-row' : '') +
                 '" data-date="' + d + '" data-opt="' + optId +
                 '" onclick="openShiftPopup(this, \'' + data.yearMonth + '\', \'' + d + '\')">' +
                 label + '</td>';
       } else {
-        html += '<td class="' + cellClass + ' ' + dayClass + (isMe ? ' my-row' : '') +
+        html += '<td class="' + cellClass + diffClass + ' ' + dayClass + (isMe ? ' my-row' : '') +
                 '">' + label + '</td>';
       }
     });
@@ -493,6 +530,13 @@ function loadShiftView() {
     .withSuccessHandler(function(data) {
       if (!data.success) return;
 
+      if (!data.locked) {
+        document.getElementById('shift-view-table-container').innerHTML =
+          '<div class="notice notice-info">この月度はまだ締切されていません。締切後に確定シフトが表示されます。</div>';
+        document.getElementById('view-source-notice').style.display = 'none';
+        return;
+      }
+
       var notice = document.getElementById('view-source-notice');
       notice.textContent = data.isFinal ? '確定シフトを表示しています' : '希望シフトを表示しています（未確定）';
       notice.style.display = 'block';
@@ -578,7 +622,7 @@ function loadAdminUsers() {
 
 function renderUsersTable(users) {
   var html = '<table class="admin-table"><thead><tr>' +
-    '<th>社員番号</th><th>氏名</th><th>権限</th><th>区分</th><th>有休時間/日</th><th>有効</th><th>操作</th>' +
+    '<th>社員番号</th><th>氏名</th><th>権限</th><th>区分</th><th>有休時間帯</th><th>有効</th><th>操作</th>' +
     '</tr></thead><tbody>';
 
   users.forEach(function(u) {
@@ -587,7 +631,7 @@ function renderUsersTable(users) {
       '<td>' + u.name + '</td>' +
       '<td>' + (u.role === 'admin' ? '管理者' : '一般') + '</td>' +
       '<td>' + (u.category || '') + '</td>' +
-      '<td>' + (u.paidLeaveHoursPerDay || 8) + 'h</td>' +
+      '<td>' + (u.paidLeaveStartTime && u.paidLeaveEndTime ? u.paidLeaveStartTime + '-' + u.paidLeaveEndTime : '-') + '</td>' +
       '<td>' + (u.active ? 'はい' : 'いいえ') + '</td>' +
       '<td>' +
       '<button class="btn btn-sm btn-primary" onclick="showEditUserModal(\'' + u.employeeId + '\')">編集</button> ' +
@@ -612,6 +656,9 @@ function showAddUserModal() {
   document.getElementById('user-password').value = 'password';
   document.getElementById('user-password-group').style.display = 'block';
   document.getElementById('user-active').checked = true;
+  document.getElementById('user-display-order').value = '0';
+  document.getElementById('user-pl-start').value = '';
+  document.getElementById('user-pl-end').value = '';
   document.getElementById('btn-save-user').dataset.mode = 'add';
   hideError('user-error');
   document.getElementById('modal-user').style.display = 'flex';
@@ -636,6 +683,9 @@ function showEditUserModal(employeeId) {
       document.getElementById('user-password-group').style.display = 'none';
       document.getElementById('user-active').checked =
         user.active === true || user.active === 'TRUE' || user.active === 'true';
+      document.getElementById('user-display-order').value = user.displayOrder || 0;
+      document.getElementById('user-pl-start').value = user.paidLeaveStartTime || '';
+      document.getElementById('user-pl-end').value = user.paidLeaveEndTime || '';
       document.getElementById('btn-save-user').dataset.mode = 'edit';
       document.getElementById('btn-save-user').dataset.employeeId = employeeId;
       hideError('user-error');
@@ -652,7 +702,9 @@ function saveUser() {
     name: document.getElementById('user-name').value.trim(),
     role: document.getElementById('user-role').value,
     category: document.getElementById('user-category').value,
-    paidLeaveHoursPerDay: parseInt(document.getElementById('user-paid-leave-hours').value) || 8,
+    displayOrder: parseInt(document.getElementById('user-display-order').value) || 0,
+    paidLeaveStartTime: document.getElementById('user-pl-start').value || '',
+    paidLeaveEndTime: document.getElementById('user-pl-end').value || '',
     includePaidLeaveInDaysOff: document.getElementById('user-include-pl').checked,
     active: document.getElementById('user-active').checked
   };
@@ -876,7 +928,7 @@ function loadShiftOptions() {
     .withSuccessHandler(function(result) {
       if (!result.success) return;
       var html = '<table class="admin-table"><thead><tr>' +
-        '<th>表示名</th><th>開始</th><th>終了</th><th>表示順</th><th>有効</th><th>操作</th>' +
+        '<th>表示名</th><th>開始</th><th>終了</th><th>表示順</th><th>有効</th><th>コード</th><th>操作</th>' +
         '</tr></thead><tbody>';
       result.options.forEach(function(o) {
         html += '<tr>' +
@@ -885,6 +937,7 @@ function loadShiftOptions() {
           '<td>' + (o.endTime || '-') + '</td>' +
           '<td>' + (o.sortOrder || 0) + '</td>' +
           '<td>' + (o.active ? 'はい' : 'いいえ') + '</td>' +
+          '<td>' + (o.code || '-') + '</td>' +
           '<td><button class="btn btn-sm btn-primary" onclick="showEditOptionModal(\'' +
           o.optionId + '\')">編集</button></td></tr>';
       });
@@ -903,6 +956,7 @@ function showAddOptionModal() {
   document.getElementById('option-end').value = '';
   document.getElementById('option-sort').value = '0';
   document.getElementById('option-active').checked = true;
+  document.getElementById('option-code').value = '';
   document.getElementById('modal-option').style.display = 'flex';
 }
 
@@ -920,6 +974,7 @@ function showEditOptionModal(optionId) {
       document.getElementById('option-sort').value = opt.sortOrder || 0;
       document.getElementById('option-active').checked =
         opt.active === true || opt.active === 'TRUE' || opt.active === 'true';
+      document.getElementById('option-code').value = opt.code || '';
       document.getElementById('modal-option').style.display = 'flex';
     })
     .withFailureHandler(handleError)
@@ -933,7 +988,8 @@ function saveOption() {
     startTime: document.getElementById('option-start').value,
     endTime: document.getElementById('option-end').value,
     sortOrder: parseInt(document.getElementById('option-sort').value) || 0,
-    active: document.getElementById('option-active').checked
+    active: document.getElementById('option-active').checked,
+    code: document.getElementById('option-code').value.trim()
   };
 
   if (!data.label) {
@@ -1320,26 +1376,6 @@ function generateAllRequestsFromDefaults() {
     .apiAdminCheckRequestsVsDefaults(currentToken, yearMonth);
 }
 
-function generateFinalFromDefaults() {
-  var yearMonth = document.getElementById('final-month-select').value;
-  if (!yearMonth) return;
-  if (!confirm(yearMonth + ' の確定シフトをデフォルト設定から一括生成しますか？\n既存の確定シフトは上書きされます。')) return;
-
-  showLoading();
-  google.script.run
-    .withSuccessHandler(function(result) {
-      hideLoading();
-      if (result.success) {
-        showToast('デフォルトから生成しました（' + result.count + '件）', 'success');
-        loadFinalShift();
-      } else {
-        showToast(result.message, 'error');
-      }
-    })
-    .withFailureHandler(handleError)
-    .apiAdminGenerateFinalFromDefaults(currentToken, yearMonth);
-}
-
 // ========== 管理者：Excel出力 ==========
 function exportExcel() {
   var yearMonth = document.getElementById('export-month-select').value;
@@ -1370,6 +1406,44 @@ function exportExcel() {
         '<div class="notice notice-danger">エラー: ' + err.message + '</div>';
     })
     .apiAdminCreateExcelFile(currentToken, yearMonth);
+}
+
+// ========== 管理者：周知事項 ==========
+function loadAnnouncements() {
+  document.getElementById('announcements-table-container').innerHTML = '<div class="loading">読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) return;
+      var html = '<table class="admin-table"><thead><tr><th>年月度</th><th>内容</th><th>操作</th></tr></thead><tbody>';
+      result.announcements.forEach(function(a) {
+        html += '<tr><td>' + a.yearMonth + '</td><td>' + (a.message || '').substring(0, 50) + '</td>';
+        html += '<td><button class="btn btn-sm btn-primary" onclick="editAnnouncement(\'' + a.yearMonth + '\', ' + JSON.stringify(a.message || '').replace(/'/g, "\\'") + ')">編集</button></td></tr>';
+      });
+      html += '</tbody></table>';
+      document.getElementById('announcements-table-container').innerHTML = html;
+    })
+    .withFailureHandler(handleError)
+    .apiAdminGetAnnouncements(currentToken);
+}
+
+function editAnnouncement(yearMonth, message) {
+  document.getElementById('anno-ym').value = yearMonth;
+  document.getElementById('anno-message').value = message;
+}
+
+function saveAnnouncement() {
+  var ym = document.getElementById('anno-ym').value;
+  var msg = document.getElementById('anno-message').value;
+  if (!ym) { showToast('年月度を選択してください', 'error'); return; }
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      showToast(result.message, result.success ? 'success' : 'error');
+      if (result.success) loadAnnouncements();
+    })
+    .withFailureHandler(handleError)
+    .apiAdminSaveAnnouncement(currentToken, ym, msg);
 }
 
 // ========== ユーティリティ ==========

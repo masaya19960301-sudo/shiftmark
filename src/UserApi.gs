@@ -33,6 +33,9 @@ function apiGetShiftInputData(token, yearMonth) {
     includePaidLeaveInDaysOff: myUser.includePaidLeaveInDaysOff
   } : {};
 
+  const allDefaults = getAllUserDefaults();
+  const announcement = getAnnouncement(yearMonth);
+
   // デフォルト反映済みかチェック
   const defaultsGenerated = isDefaultsGeneratedForMonth(yearMonth);
 
@@ -49,7 +52,9 @@ function apiGetShiftInputData(token, yearMonth) {
     users: users,
     requiredDaysOff: reqHolidays ? reqHolidays.requiredDaysOff : null,
     myInfo: myInfo,
-    defaultsGenerated: defaultsGenerated
+    defaultsGenerated: defaultsGenerated,
+    allDefaults: allDefaults,
+    announcement: announcement ? announcement.message : ''
   };
 }
 
@@ -89,13 +94,19 @@ function apiGetShiftView(token, yearMonth) {
   const options = getActiveShiftOptions();
   const holidays = getHolidays();
   const users = getAllActiveUsers();
+  const lockStatus = getLockStatus(yearMonth);
 
-  // 確定シフトがあればそれを表示、なければ希望シフト
-  let shifts = getShiftFinal(yearMonth);
-  let isFinal = true;
-  if (shifts.length === 0) {
-    shifts = getShiftRequests(yearMonth);
-    isFinal = false;
+  // 確定シフト+締切済みのみ表示
+  let shifts = [];
+  let isFinal = false;
+  if (lockStatus.locked) {
+    shifts = getShiftFinal(yearMonth);
+    isFinal = true;
+    // 確定シフトがなければ希望シフトを表示（締切済みの場合のみ）
+    if (shifts.length === 0) {
+      shifts = getShiftRequests(yearMonth);
+      isFinal = false;
+    }
   }
 
   return {
@@ -106,7 +117,8 @@ function apiGetShiftView(token, yearMonth) {
     holidays: holidays,
     users: users,
     shifts: shifts,
-    isFinal: isFinal
+    isFinal: isFinal,
+    locked: lockStatus.locked
   };
 }
 
