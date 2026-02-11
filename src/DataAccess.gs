@@ -882,3 +882,41 @@ function saveAnnouncement(yearMonth, message) {
   SpreadsheetApp.flush();
   return { success: true };
 }
+
+// ========== データクリーンアップ ==========
+
+/**
+ * 1年以上前のシフトデータを削除
+ * ShiftRequests, ShiftFinal, Locks, Announcements の yearMonth列を対象
+ * GASのトリガーで月1回実行する想定
+ * （スクリプトエディタ → トリガー → cleanupOldData を月次タイマーに設定）
+ */
+function cleanupOldData() {
+  const now = new Date();
+  const cutoff = new Date(now.getFullYear() - 1, now.getMonth(), 1);
+  const cutoffYM = Utilities.formatDate(cutoff, 'Asia/Tokyo', 'yyyy-MM');
+
+  const targets = [
+    SHEET_NAMES.SHIFT_REQUESTS,
+    SHEET_NAMES.SHIFT_FINAL,
+    SHEET_NAMES.LOCKS,
+    SHEET_NAMES.ANNOUNCEMENTS
+  ];
+
+  let totalDeleted = 0;
+  targets.forEach(sheetName => {
+    const sheet = getOrCreateSheet(sheetName);
+    const data = sheet.getDataRange().getValues();
+    // 下の行から削除（行番号ズレ防止）
+    for (let i = data.length - 1; i >= 1; i--) {
+      const ym = normalizeYearMonth(data[i][0]);
+      if (ym && ym < cutoffYM) {
+        sheet.deleteRow(i + 1);
+        totalDeleted++;
+      }
+    }
+  });
+
+  Logger.log('クリーンアップ完了: ' + totalDeleted + '行削除（基準: ' + cutoffYM + ' より前）');
+  return { success: true, deleted: totalDeleted, cutoff: cutoffYM };
+}

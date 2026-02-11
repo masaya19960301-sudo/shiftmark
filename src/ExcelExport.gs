@@ -167,10 +167,9 @@ function apiAdminCreateExcelFile(token, yearMonth) {
     if (exportData.codeData.length > 0) {
       const numRows = exportData.codeData.length;
       const numCols = exportData.codeData[0].length;
+      // 社員番号列をテキスト形式に設定（値書き込み前に設定しないとゼロ落ちする）
+      sheet.getRange(1, 2, numRows, 1).setNumberFormat('@');
       sheet.getRange(1, 1, numRows, numCols).setValues(exportData.codeData);
-
-      // 社員番号列をテキスト形式に設定
-      sheet.getRange(2, 2, numRows - 1, 1).setNumberFormat('@');
 
       formatExportSheet(sheet, exportData.dates, exportData.holidays, numRows, numCols);
     }

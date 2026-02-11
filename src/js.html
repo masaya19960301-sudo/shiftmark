@@ -1190,7 +1190,8 @@ function renderFinalShiftTable(data) {
   html += '</tr></thead><tbody>';
 
   data.users.forEach(function(user) {
-    var insufficient = data.requiredDaysOff !== null && daysOffMap[user.employeeId] < data.requiredDaysOff;
+    var isShainn = user.category === '社員';
+    var insufficient = isShainn && data.requiredDaysOff !== null && daysOffMap[user.employeeId] < data.requiredDaysOff;
     html += '<tr>';
     html += '<td class="sticky-col' + (insufficient ? ' days-off-warning' : '') + '">' +
             user.name + (insufficient ? ' (' + daysOffMap[user.employeeId] + '/' + data.requiredDaysOff + ')' : '') + '</td>';

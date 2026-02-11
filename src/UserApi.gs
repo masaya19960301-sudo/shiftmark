@@ -198,7 +198,10 @@ function apiCheckDaysOff(token, yearMonth) {
   const required = reqHolidays ? reqHolidays.requiredDaysOff : null;
   let warning = null;
 
-  if (required !== null) {
+  // フレックスの場合は公休日数チェック不要
+  const isFlexUser = user && user.category === 'フレックス';
+
+  if (required !== null && !isFlexUser) {
     const diff = totalDaysOff - required;
     if (diff < 0) {
       warning = '公休が' + Math.abs(diff) + '日不足しています（必要: ' + required + '日, 現在: ' + totalDaysOff + '日）';
