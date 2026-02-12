@@ -198,11 +198,54 @@ function getMonthDefinitions() {
 
 /**
  * 特定年月の月度定義を取得
+ * 完全一致がない場合、effectiveFromが設定された定義から日付パターンを継承
  */
 function getMonthDefinition(yearMonth) {
-  const target = normalizeYearMonth(yearMonth);
-  const defs = getMonthDefinitions();
-  return defs.find(d => d.yearMonth === target) || null;
+  var target = normalizeYearMonth(yearMonth);
+  var defs = getMonthDefinitions();
+
+  // 完全一致を優先
+  var exact = defs.find(function(d) { return d.yearMonth === target; });
+  if (exact) return exact;
+
+  // effectiveFromが設定されていて対象月以前の定義を検索
+  var applicable = defs.filter(function(d) {
+    return d.effectiveFrom && d.effectiveFrom <= target;
+  });
+
+  if (applicable.length === 0) return null;
+
+  // 最も新しいeffectiveFromの定義をテンプレートとして使用
+  applicable.sort(function(a, b) {
+    return b.effectiveFrom.localeCompare(a.effectiveFrom);
+  });
+  var template = applicable[0];
+
+  // テンプレートの月度から対象月までの月数差分を計算
+  var tParts = template.yearMonth.split('-');
+  var tYear = parseInt(tParts[0]);
+  var tMonth = parseInt(tParts[1]);
+
+  var targetParts = target.split('-');
+  var targetYear = parseInt(targetParts[0]);
+  var targetMonth = parseInt(targetParts[1]);
+
+  var monthDiff = (targetYear * 12 + targetMonth) - (tYear * 12 + tMonth);
+
+  // テンプレートの開始日・終了日を月数分ずらして適用
+  var tStart = new Date(template.startDate);
+  var tEnd = new Date(template.endDate);
+
+  var newStart = new Date(tStart.getFullYear(), tStart.getMonth() + monthDiff, tStart.getDate());
+  var newEnd = new Date(tEnd.getFullYear(), tEnd.getMonth() + monthDiff, tEnd.getDate());
+
+  return {
+    yearMonth: target,
+    startDate: formatDate(newStart),
+    endDate: formatDate(newEnd),
+    effectiveFrom: template.effectiveFrom,
+    _row: template._row
+  };
 }
 
 /**
@@ -662,16 +705,32 @@ function generateFinalFromDefaults(yearMonth) {
  * シート全体を1回だけ読み書きするため高速
  */
 function batchSaveShiftRequests(yearMonth, entries) {
-  const sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_REQUESTS);
-  const allData = sheet.getDataRange().getValues();
-  const targetYM = normalizeYearMonth(yearMonth);
-  const now = new Date().toISOString();
+  var sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_REQUESTS);
+  var rawData = sheet.getDataRange().getValues();
+  var targetYM = normalizeYearMonth(yearMonth);
+  var now = new Date().toISOString();
+
+  // GASがDate型に自動変換するため、全データを文字列に正規化
+  var allData = [];
+  for (var i = 0; i < rawData.length; i++) {
+    if (i === 0) {
+      allData.push(rawData[i]); // ヘッダーはそのまま
+    } else {
+      allData.push([
+        normalizeYearMonth(rawData[i][0]),
+        String(rawData[i][1]),
+        formatDate(rawData[i][2]),
+        String(rawData[i][3]),
+        rawData[i][4] ? String(rawData[i][4]) : ''
+      ]);
+    }
+  }
 
   // 既存レコードのインデックスを構築（employeeId|date -> 行index）
   var indexMap = {};
   for (var i = 1; i < allData.length; i++) {
-    if (normalizeYearMonth(allData[i][0]) === targetYM) {
-      var key = String(allData[i][1]) + '|' + formatDate(allData[i][2]);
+    if (allData[i][0] === targetYM) {
+      var key = allData[i][1] + '|' + allData[i][2];
       indexMap[key] = i;
     }
   }
@@ -693,15 +752,17 @@ function batchSaveShiftRequests(yearMonth, entries) {
     }
   });
 
-  // 既存データを一括書き戻し
-  if (allData.length > 1) {
-    var numCols = allData[0].length;
-    sheet.getRange(1, 1, allData.length, numCols).setValues(allData);
+  // 既存データを一括書き戻し（正規化済みの全データ）
+  if (allData.length > 0) {
+    sheet.getRange(1, 1, allData.length, 5).setValues(allData);
+    // yearMonthとemployeeId列をテキスト形式に設定
+    sheet.getRange(1, 1, allData.length, 1).setNumberFormat('@');
+    sheet.getRange(1, 2, allData.length, 1).setNumberFormat('@');
   }
 
   // 新規行を一括追記
   if (appendRows.length > 0) {
-    var startRow = sheet.getLastRow() + 1;
+    var startRow = allData.length + 1;
     sheet.getRange(startRow, 1, appendRows.length, 5).setValues(appendRows);
     sheet.getRange(startRow, 1, appendRows.length, 1).setNumberFormat('@');
     sheet.getRange(startRow, 2, appendRows.length, 1).setNumberFormat('@');
@@ -716,14 +777,30 @@ function batchSaveShiftRequests(yearMonth, entries) {
  */
 function batchSaveShiftFinal(yearMonth, entries) {
   var sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_FINAL);
-  var allData = sheet.getDataRange().getValues();
+  var rawData = sheet.getDataRange().getValues();
   var targetYM = normalizeYearMonth(yearMonth);
   var now = new Date().toISOString();
 
+  // GASがDate型に自動変換するため、全データを文字列に正規化
+  var allData = [];
+  for (var i = 0; i < rawData.length; i++) {
+    if (i === 0) {
+      allData.push(rawData[i]);
+    } else {
+      allData.push([
+        normalizeYearMonth(rawData[i][0]),
+        String(rawData[i][1]),
+        formatDate(rawData[i][2]),
+        String(rawData[i][3]),
+        rawData[i][4] ? String(rawData[i][4]) : ''
+      ]);
+    }
+  }
+
   var indexMap = {};
   for (var i = 1; i < allData.length; i++) {
-    if (normalizeYearMonth(allData[i][0]) === targetYM) {
-      var key = String(allData[i][1]) + '|' + formatDate(allData[i][2]);
+    if (allData[i][0] === targetYM) {
+      var key = allData[i][1] + '|' + allData[i][2];
       indexMap[key] = i;
     }
   }
@@ -744,13 +821,14 @@ function batchSaveShiftFinal(yearMonth, entries) {
     }
   });
 
-  if (allData.length > 1) {
-    var numCols = allData[0].length;
-    sheet.getRange(1, 1, allData.length, numCols).setValues(allData);
+  if (allData.length > 0) {
+    sheet.getRange(1, 1, allData.length, 5).setValues(allData);
+    sheet.getRange(1, 1, allData.length, 1).setNumberFormat('@');
+    sheet.getRange(1, 2, allData.length, 1).setNumberFormat('@');
   }
 
   if (appendRows.length > 0) {
-    var startRow = sheet.getLastRow() + 1;
+    var startRow = allData.length + 1;
     sheet.getRange(startRow, 1, appendRows.length, 5).setValues(appendRows);
     sheet.getRange(startRow, 1, appendRows.length, 1).setNumberFormat('@');
     sheet.getRange(startRow, 2, appendRows.length, 1).setNumberFormat('@');
