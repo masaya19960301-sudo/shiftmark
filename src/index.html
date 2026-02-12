@@ -91,6 +91,7 @@
           <select id="input-month-select" onchange="loadShiftInput()"></select>
           <button class="btn btn-sm" onclick="changeMonth('input', 1)">次月 &gt;</button>
           <button id="btn-generate-requests" class="btn btn-primary btn-sm" onclick="generateAllRequestsFromDefaults()" style="margin-left:10px; display:none;">デフォルトから反映</button>
+          <button id="btn-submit-request" class="btn btn-sm" onclick="submitShiftRequest()" style="margin-left:10px; display:none;">希望提出</button>
         </div>
       </div>
       <div id="input-defaults-notice" class="notice notice-warning" style="display:none;">

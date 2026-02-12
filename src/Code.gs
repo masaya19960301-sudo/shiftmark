@@ -17,7 +17,8 @@ const SHEET_NAMES = {
   SHIFT_FINAL: 'ShiftFinal',
   LOCKS: 'Locks',
   USER_DEFAULTS: 'UserDefaults',
-  ANNOUNCEMENTS: 'Announcements'
+  ANNOUNCEMENTS: 'Announcements',
+  SHIFT_SUBMISSIONS: 'ShiftSubmissions'
 };
 
 /**

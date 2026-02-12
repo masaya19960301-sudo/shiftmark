@@ -883,6 +883,67 @@ function saveAnnouncement(yearMonth, message) {
   return { success: true };
 }
 
+// ========== ShiftSubmissions（希望提出状態） ==========
+
+/**
+ * 希望提出を記録
+ */
+function submitShiftRequest(yearMonth, employeeId) {
+  const sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_SUBMISSIONS);
+  const data = sheet.getDataRange().getValues();
+  const targetYM = normalizeYearMonth(yearMonth);
+  const targetEmp = String(employeeId);
+
+  // 既存レコードを更新
+  for (let i = 1; i < data.length; i++) {
+    if (normalizeYearMonth(data[i][0]) === targetYM && String(data[i][1]) === targetEmp) {
+      sheet.getRange(i + 1, 3).setValue(new Date().toISOString());
+      SpreadsheetApp.flush();
+      return { success: true };
+    }
+  }
+
+  // 新規追加
+  sheet.appendRow([targetYM, targetEmp, new Date().toISOString()]);
+  const lastRow = sheet.getLastRow();
+  sheet.getRange(lastRow, 1).setNumberFormat('@');
+  sheet.getRange(lastRow, 2).setNumberFormat('@').setValue(targetEmp);
+  SpreadsheetApp.flush();
+  return { success: true };
+}
+
+/**
+ * 希望提出状態を取得（月度単位、全ユーザー）
+ */
+function getShiftSubmissions(yearMonth) {
+  const sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_SUBMISSIONS);
+  const data = sheet.getDataRange().getValues();
+  const targetYM = normalizeYearMonth(yearMonth);
+  const result = {};
+  for (let i = 1; i < data.length; i++) {
+    if (normalizeYearMonth(data[i][0]) === targetYM) {
+      result[String(data[i][1])] = data[i][2]; // employeeId -> submittedAt
+    }
+  }
+  return result;
+}
+
+/**
+ * 希望提出を取消（シフト変更時に自動リセット）
+ */
+function clearShiftSubmission(yearMonth, employeeId) {
+  const sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_SUBMISSIONS);
+  const data = sheet.getDataRange().getValues();
+  const targetYM = normalizeYearMonth(yearMonth);
+  const targetEmp = String(employeeId);
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (normalizeYearMonth(data[i][0]) === targetYM && String(data[i][1]) === targetEmp) {
+      sheet.deleteRow(i + 1);
+    }
+  }
+  SpreadsheetApp.flush();
+}
+
 // ========== データクリーンアップ ==========
 
 /**
@@ -900,7 +961,8 @@ function cleanupOldData() {
     SHEET_NAMES.SHIFT_REQUESTS,
     SHEET_NAMES.SHIFT_FINAL,
     SHEET_NAMES.LOCKS,
-    SHEET_NAMES.ANNOUNCEMENTS
+    SHEET_NAMES.ANNOUNCEMENTS,
+    SHEET_NAMES.SHIFT_SUBMISSIONS
   ];
 
   let totalDeleted = 0;

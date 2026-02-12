@@ -39,6 +39,9 @@ function apiGetShiftInputData(token, yearMonth) {
   // デフォルト反映済みかチェック
   const defaultsGenerated = isDefaultsGeneratedForMonth(yearMonth);
 
+  // 希望提出状態
+  const submissions = getShiftSubmissions(yearMonth);
+
   return {
     success: true,
     yearMonth: yearMonth,
@@ -54,7 +57,8 @@ function apiGetShiftInputData(token, yearMonth) {
     myInfo: myInfo,
     defaultsGenerated: defaultsGenerated,
     allDefaults: allDefaults,
-    announcement: announcement ? announcement.message : ''
+    announcement: announcement ? announcement.message : '',
+    submissions: submissions
   };
 }
 
@@ -80,7 +84,12 @@ function apiSaveShiftRequest(token, yearMonth, date, shiftOptionId) {
     }
   }
 
-  return saveShiftRequest(yearMonth, session.employeeId, date, shiftOptionId);
+  const result = saveShiftRequest(yearMonth, session.employeeId, date, shiftOptionId);
+  // シフト変更時に提出状態をリセット
+  if (result.success) {
+    clearShiftSubmission(yearMonth, session.employeeId);
+  }
+  return result;
 }
 
 /**
@@ -222,6 +231,17 @@ function apiCheckDaysOff(token, yearMonth) {
     warning: warning,
     includePaidLeave: includePL
   };
+}
+
+/**
+ * 希望提出
+ */
+function apiSubmitShiftRequest(token, yearMonth) {
+  const session = validateSession(token);
+  if (!session) return { success: false, message: 'セッションが無効です' };
+
+  submitShiftRequest(yearMonth, session.employeeId);
+  return { success: true, message: '希望を提出しました' };
 }
 
 /**

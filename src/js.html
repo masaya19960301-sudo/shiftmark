@@ -282,6 +282,24 @@ function loadShiftInput() {
         annoEl.style.display = 'none';
       }
 
+      // 希望提出ボタン（締切前で編集可能な場合に表示）
+      var submitBtn = document.getElementById('btn-submit-request');
+      var mySubmitted = data.submissions && data.submissions[String(currentUser.employeeId)];
+      if (!data.locked || data.isAdmin) {
+        submitBtn.style.display = 'inline-block';
+        if (mySubmitted) {
+          submitBtn.textContent = '提出済み';
+          submitBtn.className = 'btn btn-sm btn-success';
+          submitBtn.disabled = true;
+        } else {
+          submitBtn.textContent = '希望提出';
+          submitBtn.className = 'btn btn-sm btn-primary';
+          submitBtn.disabled = false;
+        }
+      } else {
+        submitBtn.style.display = 'none';
+      }
+
       renderShiftInputTable(data);
       updateDaysOffInfo(yearMonth);
     })
@@ -334,10 +352,16 @@ function renderShiftInputTable(data) {
   });
   html += '</tr></thead><tbody>';
 
+  var submissions = data.submissions || {};
+
   sortedUsers.forEach(function(user) {
     var isMe = String(user.employeeId) === String(myId);
+    var isSubmitted = !!submissions[String(user.employeeId)];
+    var nameClass = 'sticky-col';
+    if (isMe) nameClass += ' my-row';
+    if (isSubmitted) nameClass += ' submitted';
     html += '<tr>';
-    html += '<td class="sticky-col' + (isMe ? ' my-row' : '') + '">' +
+    html += '<td class="' + nameClass + '">' +
             user.name + (isMe ? ' (自分)' : '') + '</td>';
 
     dates.forEach(function(d) {
@@ -366,11 +390,11 @@ function renderShiftInputTable(data) {
         }
       }
 
-      // デフォルトとの差分チェック
+      // デフォルトとの差分チェック（全ユーザー）
       var diffClass = '';
-      if (isMe && allDefaults[myId]) {
-        var myDef = allDefaults[myId];
-        var expectedOpt = myDef[String(dt.getDay())] || '';
+      var userDefaults = allDefaults[String(user.employeeId)];
+      if (userDefaults) {
+        var expectedOpt = userDefaults[String(dt.getDay())] || '';
         if (optId !== expectedOpt) {
           diffClass = ' diff-from-default';
         }
@@ -486,6 +510,26 @@ function saveShiftCell(cell, yearMonth, date, optionId, opt) {
       showToast('保存エラー: ' + err.message, 'error');
     })
     .apiSaveShiftRequest(currentToken, yearMonth, date, optionId);
+}
+
+function submitShiftRequest() {
+  var yearMonth = document.getElementById('input-month-select').value;
+  if (!yearMonth) return;
+  if (!confirm(yearMonth + ' の希望を提出しますか？')) return;
+
+  showLoading();
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result.success) {
+        showToast(result.message, 'success');
+        loadShiftInput();
+      } else {
+        showToast(result.message, 'error');
+      }
+    })
+    .withFailureHandler(handleError)
+    .apiSubmitShiftRequest(currentToken, yearMonth);
 }
 
 function updateDaysOffInfo(yearMonth) {
@@ -1189,11 +1233,17 @@ function renderFinalShiftTable(data) {
   });
   html += '</tr></thead><tbody>';
 
+  var submissions = data.submissions || {};
+
   data.users.forEach(function(user) {
     var isShainn = user.category === '社員';
     var insufficient = isShainn && data.requiredDaysOff !== null && daysOffMap[user.employeeId] < data.requiredDaysOff;
+    var isSubmitted = !!submissions[String(user.employeeId)];
+    var nameClass = 'sticky-col';
+    if (insufficient) nameClass += ' days-off-warning';
+    if (isSubmitted) nameClass += ' submitted';
     html += '<tr>';
-    html += '<td class="sticky-col' + (insufficient ? ' days-off-warning' : '') + '">' +
+    html += '<td class="' + nameClass + '">' +
             user.name + (insufficient ? ' (' + daysOffMap[user.employeeId] + '/' + data.requiredDaysOff + ')' : '') + '</td>';
 
     dates.forEach(function(d) {
