@@ -533,6 +533,7 @@ function saveUserDefaults(employeeId, defaults) {
 
 /**
  * デフォルトシフトから希望シフトを自動生成
+ * バッチ処理で高速化
  */
 function generateShiftFromDefaults(yearMonth, employeeId) {
   const defaults = getUserDefaults(employeeId);
@@ -542,49 +543,55 @@ function generateShiftFromDefaults(yearMonth, employeeId) {
 
   const dateRange = getDateRangeForYearMonth(yearMonth);
   const dates = generateDateList(dateRange.startDate, dateRange.endDate);
+  const empId = String(employeeId);
 
-  let count = 0;
-  dates.forEach(dateStr => {
-    const dt = new Date(dateStr);
-    const dow = dt.getDay();
+  const entries = [];
+  dates.forEach(function(dateStr) {
+    const dow = new Date(dateStr).getDay();
     const optId = defaults[String(dow)] || '';
-
     if (optId) {
-      saveShiftRequest(yearMonth, employeeId, dateStr, optId);
-      count++;
+      entries.push({ employeeId: empId, date: dateStr, shiftOptionId: optId });
     }
   });
 
-  return { success: true, count: count };
+  if (entries.length > 0) {
+    batchSaveShiftRequests(yearMonth, entries);
+  }
+
+  return { success: true, count: entries.length };
 }
 
 /**
  * デフォルトシフトから希望シフトを全ユーザー一括自動生成（管理者用）
+ * バッチ処理で高速化: シートの読み書きを1回にまとめる
  */
 function generateAllRequestsFromDefaults(yearMonth) {
   const users = getAllActiveUsers();
+  const allDefaults = getAllUserDefaults();
   const dateRange = getDateRangeForYearMonth(yearMonth);
   const dates = generateDateList(dateRange.startDate, dateRange.endDate);
 
-  let totalCount = 0;
-  users.forEach(user => {
+  const entries = [];
+  users.forEach(function(user) {
     const empId = String(user.employeeId);
-    const defaults = getUserDefaults(empId);
-    if (Object.keys(defaults).length === 0) return;
+    const defaults = allDefaults[empId];
+    if (!defaults || Object.keys(defaults).length === 0) return;
 
-    dates.forEach(dateStr => {
-      const dt = new Date(dateStr);
-      const dow = dt.getDay();
+    dates.forEach(function(dateStr) {
+      const dow = new Date(dateStr).getDay();
       const optId = defaults[String(dow)] || '';
       if (optId) {
-        saveShiftRequest(yearMonth, empId, dateStr, optId);
-        totalCount++;
+        entries.push({ employeeId: empId, date: dateStr, shiftOptionId: optId });
       }
     });
   });
 
+  if (entries.length > 0) {
+    batchSaveShiftRequests(yearMonth, entries);
+  }
+
   markDefaultsGeneratedForMonth(yearMonth);
-  return { success: true, count: totalCount };
+  return { success: true, count: entries.length };
 }
 
 /**
@@ -617,6 +624,7 @@ function checkRequestsVsDefaults(yearMonth) {
 
 /**
  * デフォルトシフトから確定シフトを自動生成（管理者用：全ユーザー一括）
+ * バッチ処理で高速化
  */
 function generateFinalFromDefaults(yearMonth) {
   const users = getAllActiveUsers();
@@ -624,25 +632,131 @@ function generateFinalFromDefaults(yearMonth) {
   const dateRange = getDateRangeForYearMonth(yearMonth);
   const dates = generateDateList(dateRange.startDate, dateRange.endDate);
 
-  let totalCount = 0;
-  users.forEach(user => {
+  const entries = [];
+  users.forEach(function(user) {
     const empId = String(user.employeeId);
     const defaults = allDefaults[empId];
     if (!defaults || Object.keys(defaults).length === 0) return;
 
-    dates.forEach(dateStr => {
-      const dt = new Date(dateStr);
-      const dow = dt.getDay();
+    dates.forEach(function(dateStr) {
+      const dow = new Date(dateStr).getDay();
       const optId = defaults[String(dow)] || '';
-
       if (optId) {
-        saveShiftFinal(yearMonth, empId, dateStr, optId);
-        totalCount++;
+        entries.push({ employeeId: empId, date: dateStr, shiftOptionId: optId });
       }
     });
   });
 
-  return { success: true, count: totalCount };
+  if (entries.length > 0) {
+    batchSaveShiftFinal(yearMonth, entries);
+  }
+
+  return { success: true, count: entries.length };
+}
+
+// ========== バッチ書き込み ==========
+
+/**
+ * 希望シフトを一括保存（バッチ処理）
+ * entries: [{ employeeId, date, shiftOptionId }, ...]
+ * シート全体を1回だけ読み書きするため高速
+ */
+function batchSaveShiftRequests(yearMonth, entries) {
+  const sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_REQUESTS);
+  const allData = sheet.getDataRange().getValues();
+  const targetYM = normalizeYearMonth(yearMonth);
+  const now = new Date().toISOString();
+
+  // 既存レコードのインデックスを構築（employeeId|date -> 行index）
+  var indexMap = {};
+  for (var i = 1; i < allData.length; i++) {
+    if (normalizeYearMonth(allData[i][0]) === targetYM) {
+      var key = String(allData[i][1]) + '|' + formatDate(allData[i][2]);
+      indexMap[key] = i;
+    }
+  }
+
+  // エントリを処理：既存は上書き、新規は追記リストに追加
+  var appendRows = [];
+  entries.forEach(function(entry) {
+    var empId = String(entry.employeeId);
+    var dateStr = formatDate(entry.date);
+    var optId = String(entry.shiftOptionId);
+    var k = empId + '|' + dateStr;
+
+    if (indexMap[k] !== undefined) {
+      var idx = indexMap[k];
+      allData[idx][3] = optId;
+      allData[idx][4] = now;
+    } else {
+      appendRows.push([String(yearMonth), empId, dateStr, optId, now]);
+    }
+  });
+
+  // 既存データを一括書き戻し
+  if (allData.length > 1) {
+    var numCols = allData[0].length;
+    sheet.getRange(1, 1, allData.length, numCols).setValues(allData);
+  }
+
+  // 新規行を一括追記
+  if (appendRows.length > 0) {
+    var startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, appendRows.length, 5).setValues(appendRows);
+    sheet.getRange(startRow, 1, appendRows.length, 1).setNumberFormat('@');
+    sheet.getRange(startRow, 2, appendRows.length, 1).setNumberFormat('@');
+  }
+
+  SpreadsheetApp.flush();
+}
+
+/**
+ * 確定シフトを一括保存（バッチ処理）
+ * entries: [{ employeeId, date, shiftOptionId }, ...]
+ */
+function batchSaveShiftFinal(yearMonth, entries) {
+  var sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_FINAL);
+  var allData = sheet.getDataRange().getValues();
+  var targetYM = normalizeYearMonth(yearMonth);
+  var now = new Date().toISOString();
+
+  var indexMap = {};
+  for (var i = 1; i < allData.length; i++) {
+    if (normalizeYearMonth(allData[i][0]) === targetYM) {
+      var key = String(allData[i][1]) + '|' + formatDate(allData[i][2]);
+      indexMap[key] = i;
+    }
+  }
+
+  var appendRows = [];
+  entries.forEach(function(entry) {
+    var empId = String(entry.employeeId);
+    var dateStr = formatDate(entry.date);
+    var optId = String(entry.shiftOptionId);
+    var k = empId + '|' + dateStr;
+
+    if (indexMap[k] !== undefined) {
+      var idx = indexMap[k];
+      allData[idx][3] = optId;
+      allData[idx][4] = now;
+    } else {
+      appendRows.push([String(yearMonth), empId, dateStr, optId, now]);
+    }
+  });
+
+  if (allData.length > 1) {
+    var numCols = allData[0].length;
+    sheet.getRange(1, 1, allData.length, numCols).setValues(allData);
+  }
+
+  if (appendRows.length > 0) {
+    var startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, appendRows.length, 5).setValues(appendRows);
+    sheet.getRange(startRow, 1, appendRows.length, 1).setNumberFormat('@');
+    sheet.getRange(startRow, 2, appendRows.length, 1).setNumberFormat('@');
+  }
+
+  SpreadsheetApp.flush();
 }
 
 // ========== ShiftRequests ==========
@@ -773,12 +887,19 @@ function saveShiftFinal(yearMonth, employeeId, date, shiftOptionId) {
 
 /**
  * 希望シフトを確定シフトにコピー（一括）
+ * バッチ処理で高速化
  */
 function copyRequestsToFinal(yearMonth) {
   const requests = getShiftRequests(yearMonth);
-  requests.forEach(req => {
-    saveShiftFinal(yearMonth, req.employeeId, req.date, req.shiftOptionId);
+
+  const entries = requests.map(function(req) {
+    return { employeeId: req.employeeId, date: req.date, shiftOptionId: req.shiftOptionId };
   });
+
+  if (entries.length > 0) {
+    batchSaveShiftFinal(yearMonth, entries);
+  }
+
   return { success: true, count: requests.length };
 }
 
