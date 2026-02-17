@@ -754,18 +754,18 @@ function batchSaveShiftRequests(yearMonth, entries) {
 
   // 既存データを一括書き戻し（正規化済みの全データ）
   if (allData.length > 0) {
-    sheet.getRange(1, 1, allData.length, 5).setValues(allData);
-    // yearMonthとemployeeId列をテキスト形式に設定
+    // yearMonthとemployeeId列をテキスト形式に設定（先頭ゼロ落ち防止のためsetValuesより先に実行）
     sheet.getRange(1, 1, allData.length, 1).setNumberFormat('@');
     sheet.getRange(1, 2, allData.length, 1).setNumberFormat('@');
+    sheet.getRange(1, 1, allData.length, 5).setValues(allData);
   }
 
   // 新規行を一括追記
   if (appendRows.length > 0) {
     var startRow = allData.length + 1;
-    sheet.getRange(startRow, 1, appendRows.length, 5).setValues(appendRows);
     sheet.getRange(startRow, 1, appendRows.length, 1).setNumberFormat('@');
     sheet.getRange(startRow, 2, appendRows.length, 1).setNumberFormat('@');
+    sheet.getRange(startRow, 1, appendRows.length, 5).setValues(appendRows);
   }
 
   SpreadsheetApp.flush();
@@ -822,16 +822,17 @@ function batchSaveShiftFinal(yearMonth, entries) {
   });
 
   if (allData.length > 0) {
-    sheet.getRange(1, 1, allData.length, 5).setValues(allData);
+    // yearMonthとemployeeId列をテキスト形式に設定（先頭ゼロ落ち防止のためsetValuesより先に実行）
     sheet.getRange(1, 1, allData.length, 1).setNumberFormat('@');
     sheet.getRange(1, 2, allData.length, 1).setNumberFormat('@');
+    sheet.getRange(1, 1, allData.length, 5).setValues(allData);
   }
 
   if (appendRows.length > 0) {
     var startRow = allData.length + 1;
-    sheet.getRange(startRow, 1, appendRows.length, 5).setValues(appendRows);
     sheet.getRange(startRow, 1, appendRows.length, 1).setNumberFormat('@');
     sheet.getRange(startRow, 2, appendRows.length, 1).setNumberFormat('@');
+    sheet.getRange(startRow, 1, appendRows.length, 5).setValues(appendRows);
   }
 
   SpreadsheetApp.flush();
