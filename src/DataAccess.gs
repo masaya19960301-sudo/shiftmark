@@ -842,27 +842,30 @@ function batchSaveShiftFinal(yearMonth, entries) {
 
 /**
  * 希望シフトを取得（年月×社員）
+ * 同一社員×日付の重複エントリがある場合は最後の1件のみ保持
  */
 function getShiftRequests(yearMonth, employeeId) {
   const sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_REQUESTS);
   const data = sheet.getDataRange().getValues();
   const targetYM = normalizeYearMonth(yearMonth);
   const targetEmp = employeeId ? String(employeeId) : null;
-  const result = [];
+  const resultMap = {};
   for (let i = 1; i < data.length; i++) {
     const rowYM = normalizeYearMonth(data[i][0]);
     const rowEmp = String(data[i][1]);
     if (rowYM === targetYM && (!targetEmp || rowEmp === targetEmp)) {
-      result.push({
+      const dateStr = formatDate(data[i][2]);
+      const key = rowEmp + '_' + dateStr;
+      resultMap[key] = {
         yearMonth: rowYM,
         employeeId: rowEmp,
-        date: formatDate(data[i][2]),
+        date: dateStr,
         shiftOptionId: String(data[i][3]),
         updatedAt: data[i][4]
-      });
+      };
     }
   }
-  return result;
+  return Object.values(resultMap);
 }
 
 /**
@@ -906,27 +909,30 @@ function saveShiftRequest(yearMonth, employeeId, date, shiftOptionId) {
 
 /**
  * 確定シフトを取得
+ * 同一社員×日付の重複エントリがある場合は最後の1件のみ保持
  */
 function getShiftFinal(yearMonth, employeeId) {
   const sheet = getOrCreateSheet(SHEET_NAMES.SHIFT_FINAL);
   const data = sheet.getDataRange().getValues();
   const targetYM = normalizeYearMonth(yearMonth);
   const targetEmp = employeeId ? String(employeeId) : null;
-  const result = [];
+  const resultMap = {};
   for (let i = 1; i < data.length; i++) {
     const rowYM = normalizeYearMonth(data[i][0]);
     const rowEmp = String(data[i][1]);
     if (rowYM === targetYM && (!targetEmp || rowEmp === targetEmp)) {
-      result.push({
+      const dateStr = formatDate(data[i][2]);
+      const key = rowEmp + '_' + dateStr;
+      resultMap[key] = {
         yearMonth: rowYM,
         employeeId: rowEmp,
-        date: formatDate(data[i][2]),
+        date: dateStr,
         shiftOptionId: String(data[i][3]),
         updatedAt: data[i][4]
-      });
+      };
     }
   }
-  return result;
+  return Object.values(resultMap);
 }
 
 /**
